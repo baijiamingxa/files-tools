@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+build/
+dist/
+*.spec
+
+# 本工具的演示产物（用 make_sample_files.py 或程序本身随时可重新生成）
+示例文件/
+示例输出_utf8/
+示例转换报告.csv
+last_report.csv
+_gui_smoke_out/
+_gui_smoke_probe/
+
+# 打包出来的压缩包
+*.zip
+*.7z
+*.rar
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+*.swp
+*.bak
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 本地临时文件
+*.tmp
+~$*
