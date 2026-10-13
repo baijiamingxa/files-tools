@@ -22,6 +22,7 @@ from txt_encoder_core import (  # noqa: E402
     detect_bytes,
     detect_file,
     encode_text,
+    make_console_tolerant,
 )
 
 SIMPLIFIED = "你好，世界！这是一段简体中文测试文本。\r\n第二行：数字 123，符号 @#$。\r\n"
@@ -240,6 +241,7 @@ def test_layout(tmp: Path) -> None:
 
 
 def main() -> int:
+    make_console_tolerant()
     tmp = Path(tempfile.mkdtemp(prefix="txtenc_selftest_"))
     print("=" * 64)
     print("txt-encoder 自检开始")

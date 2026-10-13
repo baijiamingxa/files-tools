@@ -20,7 +20,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from txt_encoder_core import convert_file, ConvertOptions  # noqa: E402
+from txt_encoder_core import make_console_tolerant  # noqa: E402
 from txt_encoder_gui import EncoderApp  # noqa: E402
 
 
@@ -40,6 +40,7 @@ def idle(app: EncoderApp) -> bool:
 
 
 def main() -> int:
+    make_console_tolerant()
     demo = Path(sys.argv[1]) if len(sys.argv) > 1 else HERE / "示例文件"
     if not demo.exists():
         import make_sample_files

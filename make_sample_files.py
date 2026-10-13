@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from txt_encoder_core import encode_text  # noqa: E402
+from txt_encoder_core import encode_text, make_console_tolerant  # noqa: E402
 
 SIMPLIFIED = (
     "第一行：这是一段简体中文 GBK 测试文本。\r\n"
@@ -31,6 +31,7 @@ ENGLISH = "line one: plain ascii\nline two: 12345\n"
 
 
 def main() -> int:
+    make_console_tolerant()
     root = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parent / "示例文件"
     root.mkdir(parents=True, exist_ok=True)
     sub = root / "子目录"

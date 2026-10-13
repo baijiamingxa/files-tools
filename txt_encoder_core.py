@@ -19,6 +19,7 @@ from __future__ import annotations
 import codecs
 import os
 import shutil
+import sys
 import unicodedata
 from dataclasses import dataclass, field, replace as _replace
 from pathlib import Path
@@ -120,6 +121,18 @@ SCORE_SAMPLE_CHARS = 200_000
 
 class EncodingNotSupported(ValueError):
     """编码名无效。"""
+
+
+def make_console_tolerant() -> None:
+    """
+    让中文在“非 UTF-8 控制台 / 被重定向的管道”里也能打印：
+    遇到无法表示的字符退化成 ? 而不是直接抛 UnicodeEncodeError 把程序打断。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
 
 
 # --------------------------------------------------------------------------

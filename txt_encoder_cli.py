@@ -290,10 +290,21 @@ def main(argv=None) -> int:
 
 
 def _setup_console_encoding() -> None:
-    """让 Windows 控制台也能正常输出中文（cp936 终端下不再报 UnicodeEncodeError）。"""
+    """
+    中文输出的小保险：
+      * 输出到控制台时保持原编码（避免在 cp936 终端里变成乱码，乱码的锅不该由命令行背）；
+      * 输出被重定向到文件或管道时统一按 UTF-8 写，方便日志收集；
+      * 任何情况下遇到无法表示的字符都退化成 ? ，而不是抛异常把程序打断。
+    """
     for stream in (sys.stdout, sys.stderr):
         try:
-            stream.reconfigure(encoding="utf-8", errors="replace")
+            is_console = stream.isatty()
+        except (AttributeError, ValueError):
+            is_console = False
+        try:
+            if not is_console:
+                stream.reconfigure(encoding="utf-8")
+            stream.reconfigure(errors="replace")
         except (AttributeError, ValueError, OSError):
             pass
 

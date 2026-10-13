@@ -1,5 +1,7 @@
 # txt-encoder · 批量文本编码转换工具
 
+[![CI](https://github.com/baijiamingxa/txt-encoder/actions/workflows/ci.yml/badge.svg)](https://github.com/baijiamingxa/txt-encoder/actions/workflows/ci.yml)
+
 > Batch text-file encoding converter for Windows: GBK / GB2312 / GB18030 / Big5 / UTF-8 / UTF-16 / Shift-JIS / EUC-KR …
 > Comes with a GUI (`run_gui.bat`, double-click to run), a CLI, and drag-and-drop conversion.
 > Pure Python standard library — zero third-party dependencies. The UI and docs are in Chinese.
@@ -126,6 +128,7 @@ python txt_encoder_cli.py <路径...> [选项]
 | `make_sample_files.py` | 生成一批各种编码的示例文件，方便试手 |
 | `selftest.py` | 功能自检（40+ 项断言） |
 | `gui_smoketest.py` | 图形界面自动冒烟测试（自动创建窗口、跑完扫描+转换） |
+| `.github/workflows/ci.yml` | 持续集成：Ubuntu / Windows × Python 3.9 / 3.12 / 3.13 上跑自检和命令行全流程 |
 | `.gitignore` / `.gitattributes` | 忽略临时产物、统一换行符 |
 | `LICENSE` | MIT 许可证 |
 
@@ -155,7 +158,9 @@ print(result.summary())
 
 ## 六、环境要求与自检
 
-* Windows + Python 3.8 以上（自检用的是 3.14），**无需 pip 安装任何东西**。
+* Python 3.9 以上（开发环境是 3.14），**无需 pip 安装任何东西**。
+* 每次推送都会在 GitHub Actions 上自动跑一遍：Ubuntu + Windows 两个平台，Python 3.9 / 3.12 / 3.13
+  三个版本，内容是语法检查、`selftest.py` 全部断言、生成示例文件、命令行真实批量转换并上传报告。
 * 想确认环境没问题，双击运行：
 
 ```bat

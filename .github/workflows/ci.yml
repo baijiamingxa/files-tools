@@ -1,0 +1,71 @@
+name: CI
+
+# 什么时候跑：推送到 main、给 main 发 PR、或者你在网页上手动点一下
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# 同一个分支来了新提交，就取消上一次还没跑完的，省时间
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.os }} · Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false          # 一个组合挂了，其它组合继续跑完，方便一次看全
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.9", "3.12", "3.13"]
+
+    env:
+      # 让中文输出在 Linux / Windows 上都是 UTF-8，日志不乱码
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
+
+    steps:
+      - name: 取出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: 语法检查（编译全部 .py）
+        run: python -m compileall -q .
+
+      - name: 功能自检（编码检测与转码，38 项断言）
+        run: python selftest.py
+
+      - name: 图形界面模块可导入
+        # GitHub 的 Linux 运行器没带 tkinter，这一步只在 Windows 上做
+        if: runner.os == 'Windows'
+        run: python -c "import tkinter, txt_encoder_gui; print('tkinter + GUI 模块 OK')"
+
+      - name: 生成各种编码的示例文件
+        run: python make_sample_files.py
+
+      - name: 命令行 · 只检测编码
+        run: python txt_encoder_cli.py --detect "示例文件"
+
+      - name: 命令行 · 批量转成 UTF-8 并生成报告
+        run: python txt_encoder_cli.py "示例文件" --target utf-8 --bom none --jobs 4 --report report.csv
+
+      - name: 确认输出目录里的文件都能用 UTF-8 读出来
+        run: python -c "import pathlib,sys; files=[p for p in pathlib.Path('示例文件_utf8').rglob('*') if p.is_file()]; [p.read_text(encoding='utf-8') for p in files]; print(f'{len(files)} output files are valid UTF-8'); sys.exit(0 if files else 1)"
+
+      - name: 上传转换报告
+        uses: actions/upload-artifact@v4
+        with:
+          name: convert-report-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: report.csv
+          if-no-files-found: error

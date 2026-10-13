@@ -10,9 +10,10 @@ dist/
 *.spec
 
 # 本工具的演示产物（用 make_sample_files.py 或程序本身随时可重新生成）
-示例文件/
-示例输出_utf8/
+示例文件*/
+示例输出_*/
 示例转换报告.csv
+report.csv
 last_report.csv
 _gui_smoke_out/
 _gui_smoke_probe/
