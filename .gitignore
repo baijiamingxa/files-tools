@@ -15,6 +15,7 @@ dist/
 示例转换报告.csv
 report.csv
 last_report.csv
+_大文件测试/
 _gui_smoke_out/
 _gui_smoke_probe/
 

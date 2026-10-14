@@ -11,6 +11,7 @@ txt_encoder_core.py —— 文本文件编码检测与批量转码核心引擎
     Windows-1252(ANSI)、Latin-1 等
   * 批量转码，三种输出方式：输出到新目录 / 同目录加后缀 / 原地覆盖(自动备份)
   * 可选 BOM 策略、换行符统一、跳过已是目标编码的文件、解码失败处理
+  * 分块流式读写：内存占用与文件大小无关，几百 MB / 几 GB 的大文件也能转
   * 原子写入（先写临时文件再替换），中断不会写出半个文件
 """
 
@@ -118,9 +119,54 @@ DEFAULT_EXTS: tuple[str, ...] = (
 DETECT_SAMPLE_BYTES = 1024 * 1024
 SCORE_SAMPLE_CHARS = 200_000
 
+# 流式转码的块大小：读写都是按这个大小分块，内存占用与文件大小无关
+CHUNK_SIZE = 1024 * 1024
+
+# 预览内容只读文件开头这么点，不碰整文件
+PREVIEW_SAMPLE_BYTES = 256 * 1024
+
+# 同一组里的编码，对同一段文本写出来的字节完全一致。
+# 组内第二个数字是“宽度”：目标不比源窄时，转码是字节恒等的，可以不做任何写盘。
+_BYTE_IDENTITY_GROUPS: dict[str, tuple[str, int]] = {
+    "utf-8": ("utf8", 1),
+    "utf-8-sig": ("utf8", 1),
+    "gb2312": ("gb", 0),
+    "gbk": ("gb", 1),
+    "gb18030": ("gb", 2),
+    "big5": ("big5", 0),
+    "big5hkscs": ("big5", 1),
+}
+
+# 纯 ASCII 内容在这些编码里字节完全一样（UTF-16 / UTF-32 之类显然不算）
+_ASCII_SAFE_CODECS = frozenset({
+    "utf-8", "utf-8-sig", "ascii", "gb2312", "gbk", "gb18030",
+    "big5", "big5hkscs", "iso8859-1", "cp1252",
+})
+
+
+def codec_may_keep_bytes(source_codec: str, target_codec: str) -> bool:
+    """
+    同一段文本用 target_codec 写出来，字节是否**可能**和源文件一模一样。
+    只在这时才有必要做逐字节比对；也是“已经是目标编码，不用动”的快速判据。
+    """
+    if source_codec == target_codec:
+        return True
+    source = _BYTE_IDENTITY_GROUPS.get(source_codec)
+    target = _BYTE_IDENTITY_GROUPS.get(target_codec)
+    return bool(source and target and source[0] == target[0] and target[1] >= source[1])
+
 
 class EncodingNotSupported(ValueError):
     """编码名无效。"""
+
+
+class DecodeFailure(Exception):
+    """转码过程中解码失败，带上级位置信息（文件的第几个字节附近）。"""
+
+    def __init__(self, offset: int, original: UnicodeDecodeError) -> None:
+        super().__init__(str(original))
+        self.offset = offset
+        self.original = original
 
 
 def make_console_tolerant() -> None:
@@ -454,15 +500,57 @@ def _narrow_gb_codec(data: bytes, codec: str, reason: str) -> tuple[str, str]:
     return codec, reason
 
 
-def detect_file(path: os.PathLike | str) -> DetectResult:
-    """读取文件并检测编码。"""
+def _is_all_ascii(data: bytes) -> bool:
+    return max(data, default=0) < 0x80
+
+
+def _probe_clean_block(fh, offset: int, length: int) -> bytes:
+    """
+    从文件中间取一段“干净”的字节：以换行符开头、以换行符结尾。
+
+    换行字节 0x0A 不会出现在 UTF-8 / GBK / Big5 的多字节序列内部，
+    所以按换行切出来的块一定是完整字符，不会因为截断把编码检测带偏。
+    """
+    fh.seek(offset)
+    block = fh.read(length)
+    start = block.find(b"\n")
+    if start == -1:
+        return b""
+    end = block.rfind(b"\n")
+    if end <= start:
+        return b""
+    return block[start + 1:end + 1]
+
+
+def sample_file_bytes(path: os.PathLike | str, limit: int = DETECT_SAMPLE_BYTES) -> tuple[bytes, str]:
+    """
+    取样用于编码检测，最多读 limit 字节，返回 (样本, 取样位置说明)。
+
+    只看开头是不够的：日志类文件常见“英文表头 + 中文正文”，
+    所以开头如果是纯 ASCII，再分别抽中段和末段各一段来判断。
+    整个过程只读几段样本，多大的文件都不会把内存吃满。
+    """
     p = Path(path)
     size = p.stat().st_size
     with p.open("rb") as fh:
-        data = fh.read(DETECT_SAMPLE_BYTES)
-    result = detect_bytes(data)
-    if size > DETECT_SAMPLE_BYTES:
-        result.reason = (result.reason + "（仅取样文件开头 1 MB）").strip()
+        if size <= limit:
+            return fh.read(size), "整文件"
+        head = fh.read(limit)
+        if not _is_all_ascii(head):
+            return head, "文件开头"
+        for offset, where in ((size // 2, "文件中段"), (max(0, size - limit // 2), "文件末尾")):
+            block = _probe_clean_block(fh, offset, limit // 4)
+            if block and not _is_all_ascii(block):
+                return block, where
+        return head, "文件开头"
+
+
+def detect_file(path: os.PathLike | str) -> DetectResult:
+    """检测文件编码。大文件只取几处样本（开头/中段/末段），不会整读。"""
+    sample, where = sample_file_bytes(path)
+    result = detect_bytes(sample)
+    if where != "整文件":
+        result.reason = f"{result.reason}（取样自{where}）".strip()
     return result
 
 
@@ -797,22 +885,126 @@ def build_destination(
     return Path(out_root) / rel
 
 
-def _write_atomic(path: Path, data: bytes) -> None:
-    """先写临时文件再原子替换，避免中途失败留下半个文件。"""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f"{path.name}.tmp{os.getpid()}")
+def _remove_quietly(path: Path) -> None:
+    """删掉临时文件，失败也不吭声（不能因为清理失败掩盖真正的问题）。"""
     try:
-        with tmp.open("wb") as fh:
-            fh.write(data)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp, path)
-    finally:
-        if tmp.exists():
+        if path.exists():
+            path.unlink()
+    except OSError:
+        pass
+
+
+class _OutputSink:
+    """
+    转码结果的去处：可以真的写文件，也可以什么都不写（预演模式），
+    还能一边写一边和原文件逐字节比对，用来判断“转完其实和原文件一模一样”。
+
+    比对是用同一个数据流做的，所以不需要额外的读盘遍数，内存也始终只有一块。
+    """
+
+    def __init__(self, fout=None, compare_to: Optional[Path] = None) -> None:
+        self._fout = fout
+        self._source = open(compare_to, "rb") if compare_to is not None else None
+        self._buffer = b""
+        self._buffer_pos = 0
+        self.size = 0
+        self.identical = compare_to is not None
+
+    def write(self, data: bytes) -> None:
+        if not data:
+            return
+        self.size += len(data)
+        if self._fout is not None:
+            self._fout.write(data)
+        if self._source is None or not self.identical:
+            return
+        position = 0
+        while position < len(data):
+            if self._buffer_pos >= len(self._buffer):
+                self._buffer = self._source.read(CHUNK_SIZE)
+                self._buffer_pos = 0
+                if not self._buffer:
+                    self.identical = False        # 结果比原文件长
+                    return
+            take = min(len(self._buffer) - self._buffer_pos, len(data) - position)
+            if self._buffer[self._buffer_pos:self._buffer_pos + take] != data[position:position + take]:
+                self.identical = False
+                return
+            self._buffer_pos += take
+            position += take
+
+    def finish(self) -> bool:
+        """收尾：确认原文件没有多出来的尾巴，返回“是否和原文件完全一致”。"""
+        if self._source is not None:
+            if self.identical and (len(self._buffer) - self._buffer_pos > 0
+                                   or self._source.read(1)):
+                self.identical = False
+            self.close()
+        return self.identical
+
+    def close(self) -> None:
+        """放开用于比对的源文件句柄（出错路径也别忘了调）。"""
+        if self._source is not None:
             try:
-                tmp.unlink()
+                self._source.close()
             except OSError:
                 pass
+            self._source = None
+
+
+def _stream_convert(
+    src: Path,
+    sink: _OutputSink,
+    source_codec: str,
+    target_codec: str,
+    want_bom: bool = False,
+    newline: str = "keep",
+    decode_errors: str = "strict",
+    encode_errors: str = "strict",
+) -> None:
+    """
+    分块转码：读一块 → 解码 → 处理换行 → 编码 → 交给 sink。
+
+    内存里任何时刻只有一个块（默认 1 MB）的字节和它对应的文本，
+    所以 500 MB 的日志和 5 KB 的小文件占用一样多。
+    用增量解码器/编码器保证被切在块边界上的多字节字符能正确拼回来。
+    """
+    decoder = codecs.getincrementaldecoder(source_codec)(errors=decode_errors)
+    encoder = codecs.getincrementalencoder(target_codec)(errors=encode_errors)
+
+    if want_bom:
+        bom = BOM_BYTES.get(target_codec)
+        if bom:
+            sink.write(bom)
+
+    pending_cr = False
+    first = True
+    offset = 0
+    with src.open("rb") as fin:
+        while True:
+            chunk = fin.read(CHUNK_SIZE)
+            final = not chunk
+            try:
+                text = decoder.decode(chunk, final)
+            except UnicodeDecodeError as exc:
+                raise DecodeFailure(offset + getattr(exc, "start", 0), exc) from exc
+            if first:
+                text = strip_leading_bom(text)
+                first = False
+            if newline != "keep":
+                if pending_cr:
+                    text = "\r" + text
+                    pending_cr = False
+                if not final and text.endswith("\r"):
+                    # CRLF 恰好被切在块边界上，先留一个字符到下一块一起处理
+                    pending_cr = True
+                    text = text[:-1]
+                text = convert_newlines(text, newline)
+            if text or final:
+                sink.write(encoder.encode(text, final))
+            if final:
+                return
+            offset += len(chunk)
 
 
 def _starts_with_bom(data: bytes) -> bool:
@@ -849,61 +1041,60 @@ def convert_bytes(
 
 
 def convert_file(src: Path, options: ConvertOptions, root: Optional[Path] = None) -> FileResult:
-    """转换单个文件。不会抛出异常，所有问题都体现在返回值里。"""
+    """
+    转换单个文件。不会抛出异常，所有问题都体现在返回值里。
+
+    读、转、写都按 CHUNK_SIZE 分块进行，内存占用与文件大小无关；
+    大文件的编码检测也只取开头/中段/末段几处样本，不会把整个文件读进内存。
+    """
     src = Path(src)
     root = Path(root) if root is not None else src.parent
     result = FileResult(src=src, target_encoding=options.target_encoding)
 
-    if options.output_mode == "inplace" and options.dry_run is False and options.backup is False:
-        pass  # 允许无备份覆盖，但界面/命令行会二次确认
-
     try:
-        data = src.read_bytes()
+        size = src.stat().st_size
+        sample, sample_where = sample_file_bytes(src)
     except OSError as exc:
         result.status = "failed"
         result.error = f"读取失败：{exc}"
         return result
 
-    result.size_before = len(data)
+    result.size_before = size
 
-    if looks_binary(data):
+    if looks_binary(sample):
         result.status = "skipped"
         result.error = "疑似二进制文件，未处理"
         return result
 
-    source_codec = options.source_encoding
+    detected = detect_bytes(sample)
+    if sample_where != "整文件":
+        detected.reason = f"{detected.reason}（取样自{sample_where}）".strip()
+
+    # 源编码：用户指定优先，否则用检测结果
+    source_specified = bool(options.source_encoding) and str(options.source_encoding).lower() != "auto"
     try:
-        new_data, detected, source_codec, had_bom = convert_bytes(data, options)
-    except UnicodeDecodeError as exc:
-        result.status = "failed"
-        result.source_encoding = options.source_encoding
-        result.source_label = encoding_label(options.source_encoding)
-        result.error = (
-            f"{encoding_label(options.source_encoding)} 解码失败（第 {exc.start} 字节），"
-            "请确认源编码，或把“解码失败时”改为用替代字符继续"
-        )
-        return result
-    except UnicodeEncodeError as exc:
-        result.status = "failed"
-        result.source_encoding = source_codec
-        result.source_label = encoding_label(source_codec)
-        bad = exc.object[exc.start:exc.start + 1]
-        result.error = (
-            f"目标编码 {encoding_label(options.target_encoding)} 无法表示字符 “{bad}”，"
-            "建议目标编码改用 GBK / GB18030 / UTF-8"
-        )
-        return result
+        if source_specified:
+            source_codec = canonical_codec(str(options.source_encoding))
+            had_bom = _starts_with_bom(sample)
+        else:
+            source_codec = canonical_codec(detected.encoding)
+            had_bom = detected.has_bom
+        target_codec, want_bom = resolve_output_codec(
+            options.target_encoding, options.bom_mode, had_bom)
     except EncodingNotSupported as exc:
         result.status = "failed"
         result.error = str(exc)
         return result
 
     result.source_encoding = source_codec
-    result.source_label = detected.label if detected else encoding_label(source_codec)
-    result.confidence = detected.confidence if detected else 1.0
-    result.reason = detected.reason if detected else "按指定编码读取"
+    result.source_label = encoding_label(source_codec)
     result.had_bom = had_bom
-    result.size_after = len(new_data)
+    if source_specified:
+        result.confidence = 1.0
+        result.reason = f"按指定的 {encoding_label(source_codec)} 读取"
+    else:
+        result.confidence = detected.confidence
+        result.reason = detected.reason
 
     try:
         dst = build_destination(src, root, options)
@@ -913,19 +1104,78 @@ def convert_file(src: Path, options: ConvertOptions, root: Optional[Path] = None
         return result
     result.dst = dst
 
-    if new_data == data and options.skip_if_same:
-        if options.output_mode == "newdir" and options.copy_unchanged:
-            result.status = "copied"
-            if not options.dry_run:
-                try:
-                    dst.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(src, dst)
-                except OSError as exc:
-                    result.status = "failed"
-                    result.error = f"复制失败：{exc}"
-        else:
-            result.status = "unchanged"
+    # 转出来的字节有没有可能和原文件一模一样？只有“可能一样”才值得顺手逐字节比对。
+    same_group = codec_may_keep_bytes(source_codec, target_codec)
+    ascii_to_ascii_safe = detected.is_ascii_only and target_codec in _ASCII_SAFE_CODECS
+    compare_worthwhile = same_group or ascii_to_ascii_safe
+    # 不用读文件就能确定“字节不会变”的判据要更严格：
+    #   * 纯 ASCII 的情况必须确认整个文件都取样过了；
+    #   * 手动指定了源编码时不做这个捷径 —— 那时用户要的是“按我说的编码读完整个文件”，
+    #     跳过去就等于跳过了校验，会把“编码写错但碰巧不用改字节”的文件静默放过。
+    quick_skip = (same_group or (ascii_to_ascii_safe and sample_where == "整文件")) \
+        and not source_specified
+
+    # 便宜的一步：编码没变、BOM 策略没变、也不动换行 → 字节不可能变，整文件都不用读
+    if (options.skip_if_same and options.newline == "keep"
+            and want_bom == had_bom and quick_skip):
+        return _finish_unchanged(result, options, dst)
+
+    # 选项里的 skip 表示“整个文件跳过”，对 Python 来说就是 strict（抛错让人接管）
+    decode_errors = "replace" if options.on_decode_error == "replace" else "strict"
+    encode_errors = "replace" if options.on_encode_error == "replace" else "strict"
+
+    tmp = dst.with_name(f"{dst.name}.tmp{os.getpid()}")
+    handle = None
+    sink = _OutputSink(None, src if compare_worthwhile else None)
+    try:
+        if not options.dry_run:
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            handle = tmp.open("wb")
+            sink = _OutputSink(handle, src if compare_worthwhile else None)
+        _stream_convert(
+            src, sink, source_codec, target_codec, want_bom,
+            options.newline, decode_errors, encode_errors,
+        )
+        if handle is not None:
+            handle.flush()
+            os.fsync(handle.fileno())
+        identical = sink.finish() and sink.size == size
+    except DecodeFailure as exc:
+        result.status = "failed"
+        result.error = (
+            f"{encoding_label(source_codec)} 解码失败（文件第 {exc.offset} 字节附近），"
+            "请确认源编码，或把“解码失败时”改为用替代字符继续"
+        )
+    except UnicodeDecodeError as exc:
+        result.status = "failed"
+        result.error = f"{encoding_label(source_codec)} 解码失败：{exc}"
+    except UnicodeEncodeError as exc:
+        bad = exc.object[exc.start:exc.start + 1]
+        result.status = "failed"
+        result.error = (
+            f"目标编码 {encoding_label(options.target_encoding)} 无法表示字符 “{bad}”，"
+            "建议目标编码改用 GBK / GB18030 / UTF-8"
+        )
+    except OSError as exc:
+        result.status = "failed"
+        result.error = f"读写失败：{exc}"
+    else:
+        result.size_after = sink.size
+    finally:
+        if handle is not None:
+            try:
+                handle.close()
+            except OSError:
+                pass
+        sink.close()
+
+    if result.status == "failed":
+        _remove_quietly(tmp)
         return result
+
+    if identical and options.skip_if_same:
+        _remove_quietly(tmp)
+        return _finish_unchanged(result, options, dst)
 
     if options.dry_run:
         result.status = "preview"
@@ -937,21 +1187,44 @@ def convert_file(src: Path, options: ConvertOptions, root: Optional[Path] = None
             try:
                 shutil.copy2(src, backup_path)
             except OSError as exc:
+                _remove_quietly(tmp)
                 result.status = "failed"
                 result.error = f"备份失败，已中止（原文件未改动）：{exc}"
                 return result
 
     try:
         stat = src.stat()
-        _write_atomic(dst, new_data)
+        os.replace(tmp, dst)
         if options.keep_mtime and options.output_mode == "inplace":
             os.utime(dst, (stat.st_atime, stat.st_mtime))
     except OSError as exc:
+        _remove_quietly(tmp)
         result.status = "failed"
         result.error = f"写入失败：{exc}"
         return result
 
     result.status = "converted"
+    return result
+
+
+def _finish_unchanged(result: FileResult, options: ConvertOptions, dst: Path) -> FileResult:
+    """
+    文件本来就是目标编码（或转完必然一模一样）。
+    输出到新目录时仍会原样复制一份过去，好让输出目录是完整的；
+    原地覆盖 / 加后缀模式则直接跳过。
+    """
+    result.size_after = result.size_before
+    if options.output_mode == "newdir" and options.copy_unchanged:
+        result.status = "copied"
+        if not options.dry_run:
+            try:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(result.src, dst)
+            except OSError as exc:
+                result.status = "failed"
+                result.error = f"复制失败：{exc}"
+    else:
+        result.status = "unchanged"
     return result
 
 
@@ -1014,18 +1287,27 @@ def inspect_file(
     max_chars: int = 2000,
     errors: str = "replace",
 ) -> FileInfo:
-    """读取文件，返回编码检测结论和前若干字符的预览文本。"""
+    """
+    读取文件，返回编码检测结论和前若干字符的预览文本。
+
+    只读开头一小段（大文件也一样），不会把整个文件读进内存。
+    """
     p = Path(path)
-    data = p.read_bytes()
-    size = len(data)
-    detected = detect_bytes(data)
-    is_binary = looks_binary(data)
+    size = p.stat().st_size
+    sample, sample_where = sample_file_bytes(p)
+    detected = detect_bytes(sample)
+    if sample_where != "整文件":
+        detected.reason = f"{detected.reason}（取样自{sample_where}）".strip()
+    is_binary = looks_binary(sample)
+
+    with p.open("rb") as fh:
+        head = fh.read(PREVIEW_SAMPLE_BYTES)
 
     codec = encoding
     if not encoding or str(encoding).lower() == "auto":
         codec = detected.encoding
     try:
-        text, codec_used, _ = decode_bytes(data, codec, errors=errors)
+        text, codec_used, _ = decode_bytes(head, codec, errors=errors)
         preview = text[:max_chars]
     except (UnicodeDecodeError, EncodingNotSupported):
         preview = f"[无法用 {encoding_label(codec)} 解码此文件]"

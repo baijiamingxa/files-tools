@@ -45,14 +45,15 @@ PREVIEW_CHARS = 20000
 
 def read_preview(path: Path, encoding: str = "auto") -> tuple[str, str, str]:
     """读取文件开头用于预览。返回 (文本, 实际编码名, 提示)。"""
-    from txt_encoder_core import decode_bytes, detect_bytes, looks_binary
+    from txt_encoder_core import decode_bytes, detect_file, looks_binary
 
     with path.open("rb") as fh:
         data = fh.read(PREVIEW_BYTES)
     truncated = path.stat().st_size > PREVIEW_BYTES
     if looks_binary(data):
         return "[疑似二进制文件，已跳过预览]", "", ""
-    detected = detect_bytes(data)
+    # 只看开头会漏掉“英文表头 + 中文正文”的大文件，这里用和命令行同一套取样逻辑
+    detected = detect_file(path)
     codec = encoding
     if not encoding or str(encoding).lower() == "auto":
         codec = detected.encoding

@@ -240,6 +240,66 @@ def test_layout(tmp: Path) -> None:
     check(rc.dst == root / "a_utf8.txt", "后缀模式生成 a_utf8.txt", str(rc.dst))
 
 
+def test_streaming(tmp: Path) -> None:
+    print("\n[7] 分块读写（把块大小调到很小，专门制造“多字节字符被切两半”的情况）")
+    import txt_encoder_core as core
+
+    default_chunk = core.CHUNK_SIZE
+
+    text = "".join(f"第{i}行：中文 Mixed ASCII，标点，。！？\n" for i in range(300))
+    text += "最后一行没有换行符"
+    text += "\r\n以 CRLF 结尾的行\r\n"
+    src = tmp / "stream" / "mixed_gbk.txt"
+    src.parent.mkdir(parents=True, exist_ok=True)
+    src.write_bytes(text.encode("gbk"))
+    expected = text.replace("\r\n", "\n")
+
+    for chunk in (1, 3, 7, 13, 4096):
+        core.CHUNK_SIZE = chunk
+        try:
+            options = ConvertOptions(source_encoding="auto", target_encoding="utf-8",
+                                     bom_mode="none", newline="lf", output_mode="newdir",
+                                     output_dir=tmp / f"stream/out_{chunk}")
+            result = convert_file(src, options, src.parent)
+            ok = (result.status == "converted"
+                  and result.dst.read_bytes().decode("utf-8") == expected)
+            check(ok, f"块大小 {chunk} 字节：字符和换行被切在块边界上也拼得对",
+                  f"状态 {result.status} {result.error}")
+        except Exception as exc:                      # noqa: BLE001 - 自检里任何异常都算失败
+            check(False, f"块大小 {chunk} 字节", repr(exc))
+        finally:
+            core.CHUNK_SIZE = default_chunk
+
+    # 要“统一成 CRLF”，但文件本来就是 CRLF：应该判定为不需要改动（靠写入时顺带比对得出）
+    crlf_file = tmp / "stream" / "already_crlf.txt"
+    crlf_file.write_bytes("第一行\r\n第二行\r\n".encode("utf-8"))
+    core.CHUNK_SIZE = 3
+    try:
+        options = ConvertOptions(source_encoding="auto", target_encoding="utf-8",
+                                 newline="crlf", output_mode="inplace")
+        result = convert_file(crlf_file, options, crlf_file.parent)
+        check(result.status == "unchanged",
+              "统一换行符时，本来就符合的文件被判定为不用改", result.status)
+    finally:
+        core.CHUNK_SIZE = default_chunk
+
+    # 超过一个块大小的文件（默认块 1 MB）：跨块转换后内容必须逐字一致
+    unit = "中文测试行 ABC 123。\r\n".encode("gbk")
+    repeats = (3 * 1024 * 1024) // len(unit)
+    big = tmp / "stream" / "big_gbk.txt"
+    with big.open("wb") as fh:
+        fh.write(unit * repeats)
+    options = ConvertOptions(source_encoding="auto", target_encoding="utf-8",
+                             newline="lf", output_mode="newdir",
+                             output_dir=tmp / "stream/out_big")
+    result = convert_file(big, options, big.parent)
+    expected_big = (unit.decode("gbk") * repeats).replace("\r\n", "\n")
+    check(result.status == "converted"
+          and result.dst.read_bytes().decode("utf-8") == expected_big,
+          f"3 MB 文件跨多个块，内容逐字一致（{result.size_before} → {result.size_after} 字节）",
+          result.error)
+
+
 def main() -> int:
     make_console_tolerant()
     tmp = Path(tempfile.mkdtemp(prefix="txtenc_selftest_"))
@@ -254,6 +314,7 @@ def main() -> int:
         test_modes(tmp)
         test_robustness(tmp)
         test_layout(tmp)
+        test_streaming(tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
