@@ -43,7 +43,7 @@ jobs:
       - name: 语法检查（编译全部 .py）
         run: python -m compileall -q .
 
-      - name: 功能自检（编码检测与转码，38 项断言）
+      - name: 功能自检（编码检测、转码、分块边界，50+ 项断言）
         run: python selftest.py
 
       - name: 图形界面模块可导入

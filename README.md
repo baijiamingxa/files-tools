@@ -129,7 +129,7 @@ python txt_encoder_cli.py <路径...> [选项]
 | `txt_encoder_cli.py` | 命令行源码 |
 | `txt_encoder_core.py` | 核心引擎（编码检测 + 转码），可被其它脚本 import |
 | `make_sample_files.py` | 生成一批各种编码的示例文件，方便试手 |
-| `selftest.py` | 功能自检（40+ 项断言） |
+| `selftest.py` | 功能自检（53 项断言，含分块边界用例） |
 | `gui_smoketest.py` | 图形界面自动冒烟测试（自动创建窗口、跑完扫描+转换） |
 | `.github/workflows/ci.yml` | 持续集成：Ubuntu / Windows × Python 3.9 / 3.12 / 3.13 上跑自检和命令行全流程 |
 | `.gitignore` / `.gitattributes` | 忽略临时产物、统一换行符 |
