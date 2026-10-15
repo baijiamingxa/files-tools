@@ -62,7 +62,7 @@ def main() -> int:
     app._add_input(str(demo))
     check(";" in app.input_var.get() or app.input_var.get() == str(demo), "输入框写入路径")
 
-    # ---- 扫描
+    # 扫描
     app._start_scan()
     ok = pump(app, 60, lambda: idle(app) and not app.progress["value"] == 0)
     app.update()
@@ -76,7 +76,7 @@ def main() -> int:
     sources = {app.tree.set(row, "src") for row in rows}
     check(any("UTF" in s or "GB" in s or "Big5" in s for s in sources), "检测编码列有内容", str(sources))
 
-    # ---- 预览
+    # 预览
     app.tree.selection_set(rows[0])
     app.update()
     app._refresh_preview()
@@ -84,7 +84,7 @@ def main() -> int:
     check(len(preview) > 0 and "无法" not in preview, "选中文件后能显示内容预览",
           preview[:60])
 
-    # ---- 转换（输出到新目录）
+    # 转换（输出到新目录）
     app.mode_var.set("newdir")
     app.out_dir_var.set(str(demo.parent / "_gui_smoke_out"))
     app.tgt_var.set("UTF-8（推荐，跨平台通用）")
@@ -98,7 +98,7 @@ def main() -> int:
     out_dir = demo.parent / "_gui_smoke_out"
     check(out_dir.exists(), "输出目录已生成", str(out_dir))
 
-    # ---- 转换后的文件必须能被 UTF-8 正确解码
+    # 转换后的文件必须能被 UTF-8 正确解码
     bad = []
     for path in out_dir.rglob("*"):
         if path.is_file():
@@ -108,7 +108,7 @@ def main() -> int:
                 bad.append(f"{path.name}: {exc}")
     check(not bad, "输出文件全部是合法 UTF-8", "; ".join(bad))
 
-    # ---- 原地覆盖 + 备份
+    # 原地覆盖 + 备份
     probe = demo.parent / "_gui_smoke_probe"
     probe.mkdir(exist_ok=True)
     target_file = probe / "probe.txt"

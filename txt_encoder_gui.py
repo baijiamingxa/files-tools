@@ -98,7 +98,7 @@ class EncoderApp(tk.Tk):
         self._build_ui()
         self.after(self.POLL_MS, self._poll_queue)
 
-    # ------------------------------------------------------------------ 样式
+    # 样式
     def _init_style(self) -> None:
         for name in ("TkDefaultFont", "TkTextFont", "TkMenuFont"):
             try:
@@ -136,7 +136,7 @@ class EncoderApp(tk.Tk):
         self.preview_info_var = tk.StringVar(value="在左侧列表中选择一个文件即可预览内容。")
         self.preview_enc_var = tk.StringVar(value="按上面设置的源编码")
 
-    # ------------------------------------------------------------------ 界面
+    # 界面
     def _build_ui(self) -> None:
         outer = ttk.Frame(self, padding=10)
         outer.pack(fill="both", expand=True)
@@ -258,7 +258,7 @@ class EncoderApp(tk.Tk):
         self.notebook = ttk.Notebook(box)
         self.notebook.pack(fill="both", expand=True)
 
-        # ---- 文件列表
+        # 文件列表
         list_tab = ttk.Frame(self.notebook)
         self.notebook.add(list_tab, text="  文件列表  ")
         columns = ("status", "name", "src", "conf", "size", "note")
@@ -285,7 +285,7 @@ class EncoderApp(tk.Tk):
         list_tab.columnconfigure(0, weight=1)
         self.tree.bind("<<TreeviewSelect>>", lambda _e: self._refresh_preview())
 
-        # ---- 内容预览
+        # 内容预览
         prev_tab = ttk.Frame(self.notebook)
         self.notebook.add(prev_tab, text="  内容预览 / 校验  ")
         top = ttk.Frame(prev_tab, padding=(6, 6))
@@ -310,7 +310,7 @@ class EncoderApp(tk.Tk):
         text_wrap.rowconfigure(0, weight=1)
         text_wrap.columnconfigure(0, weight=1)
 
-        # ---- 日志
+        # 日志
         log_tab = ttk.Frame(self.notebook)
         self.notebook.add(log_tab, text="  日志  ")
         self.log_text = tk.Text(log_tab, wrap="word", height=8, font=("Consolas", 9))
@@ -319,7 +319,7 @@ class EncoderApp(tk.Tk):
         self.log_text.pack(side="left", fill="both", expand=True)
         lsb.pack(side="right", fill="y")
 
-    # ------------------------------------------------------------------ 交互
+    # 交互
     def _pick_folder(self) -> None:
         path = filedialog.askdirectory(title="选择包含待转换文本的文件夹")
         if path:
@@ -391,7 +391,7 @@ class EncoderApp(tk.Tk):
                 return key
         return "keep"
 
-    # ------------------------------------------------------------------ 参数
+    # 参数
     def _make_options(self, dry_run: bool) -> ConvertOptions:
         out_dir = self.out_dir_var.get().strip()
         return ConvertOptions(
@@ -422,7 +422,7 @@ class EncoderApp(tk.Tk):
             return [options.output_dir]
         return []
 
-    # ------------------------------------------------------------------ 任务
+    # 任务
     def _start_scan(self) -> None:
         options = self._make_options(dry_run=True)
         inputs = self._collect_inputs()
@@ -513,7 +513,7 @@ class EncoderApp(tk.Tk):
         finally:
             self._queue.put(("done", scan, total))
 
-    # ------------------------------------------------------------------ 反馈
+    # 反馈
     def _poll_queue(self) -> None:
         try:
             while True:
@@ -628,7 +628,7 @@ class EncoderApp(tk.Tk):
         self.log_text.insert("end", text + "\n")
         self.log_text.see("end")
 
-    # ------------------------------------------------------------------ 预览
+    # 预览
     def _refresh_preview(self) -> None:
         selection = self.tree.selection()
         if not selection:
@@ -651,7 +651,7 @@ class EncoderApp(tk.Tk):
         self.preview_text.configure(state="disabled")
         self.preview_info_var.set(f"{path.name} · {note}")
 
-    # ------------------------------------------------------------------ 输出
+    # 输出
     def _open_output(self) -> None:
         options = self._make_options(False)
         target = options.output_dir

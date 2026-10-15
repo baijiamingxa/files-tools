@@ -28,9 +28,7 @@ from typing import Iterable, Iterator, Optional, Sequence
 
 VERSION = "1.0.0"
 
-# --------------------------------------------------------------------------
 # 编码清单（界面 / 命令行共用）
-# --------------------------------------------------------------------------
 
 # (显示名称, Python 编码名)
 ENCODING_CHOICES: list[tuple[str, str]] = [
@@ -181,9 +179,7 @@ def make_console_tolerant() -> None:
             pass
 
 
-# --------------------------------------------------------------------------
 # 基础工具
-# --------------------------------------------------------------------------
 
 def canonical_codec(name: str) -> str:
     """把编码别名规范成 Python 标准名，例如 LATIN-1 -> iso8859-1。"""
@@ -355,9 +351,7 @@ def _byte_structure_bonus(codec: str, low_ratio: float, pair_count: int) -> floa
     return 0.0
 
 
-# --------------------------------------------------------------------------
 # 编码检测
-# --------------------------------------------------------------------------
 
 @dataclass
 class DetectResult:
@@ -554,9 +548,7 @@ def detect_file(path: os.PathLike | str) -> DetectResult:
     return result
 
 
-# --------------------------------------------------------------------------
 # 解码 / 编码
-# --------------------------------------------------------------------------
 
 def decode_bytes(
     data: bytes,
@@ -657,9 +649,7 @@ def convert_newlines(text: str, mode: str = "keep") -> str:
     return text
 
 
-# --------------------------------------------------------------------------
 # 批量转码
-# --------------------------------------------------------------------------
 
 @dataclass
 class ConvertOptions:
@@ -1019,7 +1009,6 @@ def convert_bytes(
     转换一段字节。返回 (新字节, 检测结果, 实际源编码, 源文件是否有 BOM)。
     解码/编码失败会抛出 UnicodeDecodeError / UnicodeEncodeError，由调用方处理。
     """
-    # 选项里的 skip 表示“整个文件跳过”，对 Python 来说就是 strict（抛错让人接管）
     decode_errors = "replace" if options.on_decode_error == "replace" else "strict"
     encode_errors = "replace" if options.on_encode_error == "replace" else "strict"
     text, source_codec, detected = decode_bytes(
@@ -1257,9 +1246,7 @@ def count_status(results: Sequence[FileResult]) -> dict[str, int]:
     return stats
 
 
-# --------------------------------------------------------------------------
 # 预览 / 详情
-# --------------------------------------------------------------------------
 
 @dataclass
 class FileInfo:
