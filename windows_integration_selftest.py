@@ -22,7 +22,7 @@ class RegistrationPlanTests(unittest.TestCase):
             (app / "file_toolbox.py").touch()
             values = integration.registration_entries(app_dir=app, python_exe=sys.executable)
             command = values[integration.PROG_ID + r"\shell\open\command"][""]
-            self.assertEqual(command, f'"{Path(sys.executable).resolve()}" "{app / "file_toolbox.py"}" "%1"')
+            self.assertEqual(command, f'"{Path(sys.executable).resolve()}" "{app.resolve() / "file_toolbox.py"}" "%1"')
             self.assertNotIn("cmd.exe", command.lower())
 
     def test_missing_program_rejected(self):
@@ -85,7 +85,7 @@ class RegistryTests(unittest.TestCase):
             integration.install(app_dir=moved, root_path=self.root)
             self.assertFalse(integration.is_installed(root_path=self.root))
             self.assertTrue(integration.is_installed(app_dir=moved, root_path=self.root))
-            self.assertIn(str(moved), self.get(integration.PROG_ID + r"\shell\open\command"))
+            self.assertIn(str(moved.resolve()), self.get(integration.PROG_ID + r"\shell\open\command"))
 
     def test_invalid_program_does_not_write_registry(self):
         with tempfile.TemporaryDirectory() as temp:
