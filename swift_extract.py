@@ -1597,6 +1597,22 @@ class Scheduler:
 # 图形界面
 # =====================================================================
 
+def default_config_path():
+    """设置文件位置；打包成 exe 后 __file__ 指向临时解包目录，改随 exe 存放。"""
+    if getattr(sys, "frozen", False):
+        base = os.path.dirname(os.path.abspath(sys.executable))
+        probe = os.path.join(base, ".write_probe")
+        try:
+            with open(probe, "wb"):
+                pass
+            os.remove(probe)
+        except OSError:
+            base = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "文件工具箱")
+            os.makedirs(base, exist_ok=True)
+        return os.path.join(base, "archive_settings.json")
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "archive_settings.json")
+
+
 def run_gui(parent=None, config_path=None, on_output=None):
     """创建独立窗口或嵌入页签，并返回任务控制接口。"""
     import json
@@ -1604,8 +1620,7 @@ def run_gui(parent=None, config_path=None, on_output=None):
     from tkinter import filedialog, messagebox, simpledialog, ttk
     from types import SimpleNamespace
 
-    CFG = os.fspath(config_path) if config_path is not None else os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "archive_settings.json")
+    CFG = os.fspath(config_path) if config_path is not None else default_config_path()
 
     def load_cfg():
         try:

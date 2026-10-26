@@ -22,20 +22,27 @@ EXTENSIONS = (".txt",) + ARCHIVE_EXTENSIONS
 
 def registration_entries(app_dir=None, python_exe=None):
     """生成确定的注册项；不改扩展名默认值或 UserChoice。"""
-    app_dir = Path(app_dir or Path(__file__).resolve().parent).resolve()
-    script = app_dir / "file_toolbox.py"
-    interpreter = Path(python_exe or sys.executable).resolve()
-    if python_exe is None:
-        windowed = interpreter.with_name("pythonw.exe")
-        if windowed.is_file():
-            interpreter = windowed
-    if not script.is_file():
-        raise FileNotFoundError(f"找不到工具箱程序：{script}")
-    if not interpreter.is_file():
-        raise FileNotFoundError(f"找不到 Python：{interpreter}")
-    # 直接执行解释器，不经过 cmd；文件名中的空格、&、!、% 都保持原样。
-    command = f'"{interpreter}" "{script}" "%1"'
-    icon = f'"{interpreter}",0'
+    if app_dir is None and python_exe is None and getattr(sys, "frozen", False):
+        # 打包成 exe 后没有 file_toolbox.py 和解释器，注册项直接指向 exe 本身。
+        exe = Path(sys.executable).resolve()
+        app_dir = exe.parent
+        command = f'"{exe}" "%1"'
+        icon = f'"{exe}",0'
+    else:
+        app_dir = Path(app_dir or Path(__file__).resolve().parent).resolve()
+        script = app_dir / "file_toolbox.py"
+        interpreter = Path(python_exe or sys.executable).resolve()
+        if python_exe is None:
+            windowed = interpreter.with_name("pythonw.exe")
+            if windowed.is_file():
+                interpreter = windowed
+        if not script.is_file():
+            raise FileNotFoundError(f"找不到工具箱程序：{script}")
+        if not interpreter.is_file():
+            raise FileNotFoundError(f"找不到 Python：{interpreter}")
+        # 直接执行解释器，不经过 cmd；文件名中的空格、&、!、% 都保持原样。
+        command = f'"{interpreter}" "{script}" "%1"'
+        icon = f'"{interpreter}",0'
     entries = {
         PROG_ID: {"": "文件工具箱", "FriendlyTypeName": "文件工具箱", "InstallDir": str(app_dir)},
         PROG_ID + r"\DefaultIcon": {"": icon},

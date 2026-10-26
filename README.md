@@ -45,6 +45,20 @@
 
 如果只需要原来的独立转码窗口，运行 `py txt_encoder_gui.py`。
 
+### 免装 Python：打包成 exe
+
+不想装 Python，可以打包一个单文件 exe：
+
+```bat
+py -m pip install pyinstaller    :: 只需装一次
+py build_exe.py
+```
+
+得到 **`dist\文件工具箱.exe`**，拷到任何 Windows 电脑双击就能用，下载、解压、转码功能齐全，
+设置保存在 exe 旁边（所在目录不可写时自动改存到 `%APPDATA%\文件工具箱`），
+在窗口里安装右键菜单也会指向这个 exe。
+首次运行可能弹出 SmartScreen 提示，点“更多信息 → 仍要运行”即可。
+
 ### 直接从文件右键打开
 
 首次使用双击 **`安装右键菜单.bat`**，或在工具箱右上角“文件右键菜单”中选择“安装 / 更新右键菜单”。
@@ -156,6 +170,7 @@ python txt_encoder_cli.py <路径...> [选项]
 | `txt_encoder_cli.py` | 命令行源码 |
 | `txt_encoder_core.py` | 核心引擎（编码检测 + 转码），可被其它脚本 import |
 | `make_sample_files.py` | 生成一批各种编码的示例文件，方便试手 |
+| `build_exe.py` | 把工具箱打包成单文件 `dist\文件工具箱.exe`（免装 Python 直接运行） |
 | `selftest.py` | 功能自检（53 项断言，含分块边界用例） |
 | `gui_smoketest.py` | 图形界面自动冒烟测试（自动创建窗口、跑完扫描+转换） |
 | `.github/workflows/ci.yml` | 持续集成：Ubuntu / Windows × Python 3.9 / 3.12 / 3.13 上跑自检和命令行全流程 |
