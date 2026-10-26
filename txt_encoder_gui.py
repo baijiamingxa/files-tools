@@ -75,17 +75,13 @@ def read_preview(path: Path, encoding: str = "auto") -> tuple[str, str, str]:
     return text, codec_used, note
 
 
-class EncoderApp(tk.Tk):
-    """主窗口。"""
+class _EncoderUI:
+    """转码界面，供独立窗口和工具箱页签共用。"""
 
     POLL_MS = 80
 
-    def __init__(self) -> None:
-        super().__init__()
-        self.title(f"批量文本编码转换工具  v{VERSION}")
-        self.geometry("1080x760")
-        self.minsize(920, 660)
-
+    def _init_encoder(self) -> None:
+        self._encoder_closed = False
         self._pairs: list[tuple[Path, Path]] = []
         self._item_ids: list[str] = []
         self._results: dict[str, object] = {}
@@ -96,7 +92,18 @@ class EncoderApp(tk.Tk):
         self._init_style()
         self._build_vars()
         self._build_ui()
-        self.after(self.POLL_MS, self._poll_queue)
+        self._poll_after = self.after(self.POLL_MS, self._poll_queue)
+        self._convert_after = None
+
+    def shutdown(self) -> None:
+        if self._encoder_closed:
+            return
+        self._encoder_closed = True
+        self._stop_event.set()
+        self._pending_convert = None
+        for timer in (self._poll_after, self._convert_after):
+            if timer is not None:
+                self.after_cancel(timer)
 
     # 样式
     def _init_style(self) -> None:
@@ -116,25 +123,25 @@ class EncoderApp(tk.Tk):
         style.configure("Title.TLabel", font=("Microsoft YaHei UI", 11, "bold"))
 
     def _build_vars(self) -> None:
-        self.input_var = tk.StringVar()
-        self.recursive_var = tk.BooleanVar(value=True)
-        self.hidden_var = tk.BooleanVar(value=True)
-        self.ext_var = tk.StringVar(value="txt,md,log,csv,json,xml,html,ini,yml,srt")
+        self.input_var = tk.StringVar(self)
+        self.recursive_var = tk.BooleanVar(self, value=True)
+        self.hidden_var = tk.BooleanVar(self, value=True)
+        self.ext_var = tk.StringVar(self, value="txt,md,log,csv,json,xml,html,ini,yml,srt")
         self.src_labels = [label for label, _ in ENCODING_CHOICES]
-        self.src_var = tk.StringVar(value=self.src_labels[0])
+        self.src_var = tk.StringVar(self, value=self.src_labels[0])
         self.tgt_labels = [label for label, _ in TARGET_CHOICES]
-        self.tgt_var = tk.StringVar(value=self.tgt_labels[0])
-        self.bom_var = tk.StringVar(value="与原文件一致")
-        self.nl_var = tk.StringVar(value="保持原样")
-        self.mode_var = tk.StringVar(value="newdir")
-        self.out_dir_var = tk.StringVar()
-        self.suffix_var = tk.StringVar(value="_utf8")
-        self.backup_var = tk.BooleanVar(value=True)
-        self.skip_same_var = tk.BooleanVar(value=True)
-        self.err_var = tk.StringVar(value=list(ERR_MODES)[0])
-        self.status_var = tk.StringVar(value="就绪。先设置好参数，然后点“扫描预览”。")
-        self.preview_info_var = tk.StringVar(value="在左侧列表中选择一个文件即可预览内容。")
-        self.preview_enc_var = tk.StringVar(value="按上面设置的源编码")
+        self.tgt_var = tk.StringVar(self, value=self.tgt_labels[0])
+        self.bom_var = tk.StringVar(self, value="与原文件一致")
+        self.nl_var = tk.StringVar(self, value="保持原样")
+        self.mode_var = tk.StringVar(self, value="newdir")
+        self.out_dir_var = tk.StringVar(self)
+        self.suffix_var = tk.StringVar(self, value="_utf8")
+        self.backup_var = tk.BooleanVar(self, value=True)
+        self.skip_same_var = tk.BooleanVar(self, value=True)
+        self.err_var = tk.StringVar(self, value=list(ERR_MODES)[0])
+        self.status_var = tk.StringVar(self, value="就绪。先设置好参数，然后点“扫描预览”。")
+        self.preview_info_var = tk.StringVar(self, value="在左侧列表中选择一个文件即可预览内容。")
+        self.preview_enc_var = tk.StringVar(self, value="按上面设置的源编码")
 
     # 界面
     def _build_ui(self) -> None:
@@ -538,7 +545,7 @@ class EncoderApp(tk.Tk):
                     self._finish(scan, total)
         except queue.Empty:
             pass
-        self.after(self.POLL_MS, self._poll_queue)
+        self._poll_after = self.after(self.POLL_MS, self._poll_queue)
 
     def _apply_result(self, index: int, result) -> None:
         self._results[str(result.src)] = result
@@ -587,7 +594,7 @@ class EncoderApp(tk.Tk):
             )
             if preview and self._pending_convert_options():
                 self._pending_convert = None
-                self.after(50, self._continue_convert)
+                self._convert_after = self.after(50, self._continue_convert)
             self.notebook.select(0)
             return
 
@@ -696,6 +703,33 @@ class EncoderApp(tk.Tk):
                     item.reason, item.error,
                 ])
         messagebox.showinfo("已保存", f"报告已保存到：\n{path}")
+
+
+class EncoderPanel(_EncoderUI, ttk.Frame):
+    """可嵌入其他窗口的转码页。"""
+
+    def __init__(self, master) -> None:
+        super().__init__(master)
+        self._init_encoder()
+
+    def destroy(self) -> None:
+        self.shutdown()
+        super().destroy()
+
+
+class EncoderApp(_EncoderUI, tk.Tk):
+    """兼容原来的独立 GUI 入口。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.title(f"批量文本编码转换工具  v{VERSION}")
+        self.geometry("1080x760")
+        self.minsize(920, 660)
+        self._init_encoder()
+
+    def destroy(self) -> None:
+        self.shutdown()
+        super().destroy()
 
 
 def main() -> int:

@@ -11,7 +11,7 @@ for %%C in (pyw.exe pythonw.exe) do (
 )
 
 if defined PYW (
-    start "" !PYW! "%~dp0txt_encoder_gui.py" %*
+    start "" !PYW! "%~dp0file_toolbox.py" %*
     exit /b 0
 )
 
@@ -23,7 +23,7 @@ for %%C in (py.exe python.exe) do (
 )
 
 if defined PY (
-    !PY! "%~dp0txt_encoder_gui.py" %*
+    !PY! "%~dp0file_toolbox.py" %*
     exit /b %errorlevel%
 )
 

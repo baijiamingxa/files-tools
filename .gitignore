@@ -36,3 +36,8 @@ desktop.ini
 # 本地临时文件
 *.tmp
 ~$*
+
+# 工具箱个人配置和下载断点
+archive_settings.json
+*.dlp
+*.part

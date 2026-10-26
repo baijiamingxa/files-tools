@@ -1,17 +1,24 @@
-# txt-encoder · 批量文本编码转换工具
+# 文件工具箱 · 下载 / 压缩解压 / 批量文本转码
 
 [![CI](https://github.com/baijiamingxa/txt-encoder/actions/workflows/ci.yml/badge.svg)](https://github.com/baijiamingxa/txt-encoder/actions/workflows/ci.yml)
 
-> Batch text-file encoding converter for Windows: GBK / GB2312 / GB18030 / Big5 / UTF-8 / UTF-16 / Shift-JIS / EUC-KR …
-> Comes with a GUI (`run_gui.bat`, double-click to run), a CLI, and drag-and-drop conversion.
-> Pure Python standard library — zero third-party dependencies. The UI and docs are in Chinese.
+> A single Windows GUI for HTTP downloads, archive compression/extraction and batch text encoding conversion.
+> Double-click `run_gui.bat` or `启动文件工具箱.bat`. The original command-line tools remain available.
+> Core features use the Python standard library. Extra archive formats use optional engines already installed on the machine.
 
-一个 Windows 上用起来很顺手的批量转码工具：把一堆 txt / md / csv / log 等文本文件，
-从 GBK、GB2312、Big5、UTF-8、UTF-16 等任意一种编码，批量转成你想要的那种编码。
+把直链下载器、疾速解压和原来的 txt 转码工具合并在同一窗口，三个页签可以独立使用，
+也可以按“下载 → 解压 → 转码”衔接处理。仓库地址和原有转码命令行接口保持兼容。
 
-自带图形界面（双击就能用）和命令行（可以写进脚本），**只依赖 Python 标准库，不需要装任何第三方库**。
+| 页签 | 功能 |
+| --- | --- |
+| 直链下载 | HTTP/HTTPS 分段下载、进度和速度、暂停后续传、不支持分段时回退 |
+| 压缩 / 解压 | ZIP、tar、tar.gz、tar.xz 压缩与解压，gz/bz2/xz 单文件解压，批量任务与中文文件名修复 |
+| 文本转码 | 批量识别和转换 GBK、GB2312、Big5、UTF-8、UTF-16 等编码，预览、报告与原地备份 |
 
-![界面截图](docs/screenshot.png)
+这些基础功能**只依赖 Python 标准库，无需 pip 安装**。7z、AES ZIP、zst、RAR 等额外格式的
+可用情况取决于本机已有扩展库或 WinRAR/UnRAR，详见[工具箱说明](docs/工具箱说明.md)。
+
+![合并后的工具箱](docs/toolbox.png)
 
 ---
 
@@ -19,7 +26,14 @@
 
 ### 方式 1：图形界面（推荐）
 
-双击 **`run_gui.bat`**，窗口打开后：
+双击 **`启动文件工具箱.bat`** 或 **`run_gui.bat`**，打开统一窗口：
+
+* 下载：输入直链并开始下载。完成后点击“下载结果 → 解压”或“下载结果 → 转码”。
+* 解压：添加压缩包，核对输出目录，点击“开始解压”；完成后可点击“解压结果 → 转码”。
+  选中了任务时只传递所选成功结果；未选择时传递全部成功解压的目录。右上角“打包压缩…”用于创建压缩包。
+* 转码：按下面的步骤操作。传递结果只添加输入，不会自动开始转换。
+
+在 **“文本转码”页**：
 
 1. 点“选择文件夹…”挑一个目录（也可以直接把文件夹拖到 `run_gui.bat` 上）；
 2. “目标编码”选 UTF-8（默认就是）；
@@ -28,6 +42,8 @@
 5. 确认没问题，点 **② 开始转换**。
 
 默认是“输出到新目录”，原文件一个都不会动，结果放在源文件夹旁边的 `文件夹名_utf8` 目录里。
+
+如果只需要原来的独立转码窗口，运行 `py txt_encoder_gui.py`。
 
 ### 方式 2：拖一下就转
 
@@ -163,12 +179,14 @@ print(result.summary())
 
 * Python 3.9 以上（开发环境是 3.14），**无需 pip 安装任何东西**。
 * 每次推送都会在 GitHub Actions 上自动跑一遍：Ubuntu + Windows 两个平台，Python 3.9 / 3.12 / 3.13
-  三个版本，内容是语法检查、`selftest.py` 全部断言、生成示例文件、命令行真实批量转换并上传报告。
-* 想确认环境没问题，双击运行：
+  三个版本，检查原有转码功能、工具箱下载与压缩集成流程、命令行转换并上传报告；Windows 还运行两套真实 GUI 测试。
+* 想确认环境没问题，在项目目录运行：
 
 ```bat
 python selftest.py        :: 全部通过 ✔ 说明检测和转码逻辑正常
 python gui_smoketest.py   :: 全部通过 ✔ 说明图形界面正常
+python toolbox_selftest.py       :: 下载、暂停续传、压缩解压和转码串联
+python toolbox_gui_smoketest.py  :: 统一窗口内的完整操作流程
 ```
 
 ---
