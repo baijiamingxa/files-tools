@@ -11,8 +11,10 @@ import traceback
 from pathlib import Path
 from tkinter import messagebox, ttk
 
+import c_cleaner
 import direct_downloader
 import swift_extract
+from c_cleaner import CleanerPanel
 from txt_encoder_gui import EncoderPanel
 from windows_integration import ARCHIVE_EXTENSIONS
 
@@ -20,7 +22,7 @@ from windows_integration import ARCHIVE_EXTENSIONS
 class ToolboxApp(tk.Tk):
     def __init__(self, config_path=None):
         super().__init__()
-        self.title("文件工具箱 · 下载 / 压缩解压 / 文本转码")
+        self.title("文件工具箱 · 下载 / 压缩解压 / 文本转码 / C 盘清理")
         width = max(1100, min(1200, self.winfo_screenwidth() - 60))
         height = max(660, min(860, self.winfo_screenheight() - 100))
         x = max(0, (self.winfo_screenwidth() - width) // 2)
@@ -33,7 +35,7 @@ class ToolboxApp(tk.Tk):
         header = ttk.Frame(self, padding=(14, 10))
         header.pack(fill="x")
         ttk.Label(header, text="文件工具箱", font=("Microsoft YaHei UI", 16, "bold")).pack(side="left")
-        ttk.Label(header, text="下载 → 解压 → 转码，也可以单独使用每个工具").pack(side="left", padx=20)
+        ttk.Label(header, text="下载 → 解压 → 转码 → 清理，也可以单独使用每个工具").pack(side="left", padx=20)
         self.file_menu_btn = ttk.Menubutton(header, text="文件右键菜单")
         self.file_menu_btn.pack(side="right")
         self.file_menu = tk.Menu(self.file_menu_btn, tearoff=False)
@@ -50,9 +52,11 @@ class ToolboxApp(tk.Tk):
         self.download_tab = ttk.Frame(self.tabs)
         self.archive_tab = ttk.Frame(self.tabs)
         self.encoder = EncoderPanel(self.tabs)
+        self.cleaner = CleanerPanel(self.tabs, status_callback=self._forward_status)
         self.tabs.add(self.download_tab, text="  直链下载  ")
         self.tabs.add(self.archive_tab, text="  压缩 / 解压  ")
         self.tabs.add(self.encoder, text="  文本转码  ")
+        self.tabs.add(self.cleaner.frame, text="  C 盘清理  ")
 
         actions = ttk.Frame(self.download_tab, padding=8)
         actions.pack(fill="x")
@@ -68,6 +72,9 @@ class ToolboxApp(tk.Tk):
             parent=self.archive_tab, config_path=config_path, on_output=self.send_to_encoder)
 
         self.protocol("WM_DELETE_WINDOW", self.request_close)
+
+    def _forward_status(self, text):
+        self.status_var.set(text)
 
     def _download_completed(self, path):
         self.last_download = Path(path)
@@ -156,6 +163,7 @@ class ToolboxApp(tk.Tk):
             (self.download.job_thread and self.download.job_thread.is_alive())
             or self.archive.busy()
             or (self.encoder._worker and self.encoder._worker.is_alive())
+            or self.cleaner.busy()
         )
 
     def request_close(self):
@@ -166,6 +174,7 @@ class ToolboxApp(tk.Tk):
         self.download.shutdown()
         self.archive.shutdown()
         self.encoder.shutdown()
+        self.cleaner.shutdown()
         self.withdraw()
         self._finish_close()
 
@@ -177,6 +186,9 @@ class ToolboxApp(tk.Tk):
 
 
 def main():
+    if c_cleaner.ADMIN_TASK_FLAG in sys.argv[1:]:
+        # 管理员清理任务：由 UAC 提权启动的独立进程走这条路径，不打开窗口。
+        return c_cleaner.run_admin_task_entry(sys.argv[1:])
     app = ToolboxApp()
     app.open_inputs(sys.argv[1:])
     app.mainloop()

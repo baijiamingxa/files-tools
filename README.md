@@ -1,4 +1,4 @@
-# 文件工具箱 · 下载 / 压缩解压 / 批量文本转码
+# 文件工具箱 · 下载 / 压缩解压 / 批量文本转码 / C 盘清理
 
 [![CI](https://github.com/baijiamingxa/txt-encoder/actions/workflows/ci.yml/badge.svg)](https://github.com/baijiamingxa/txt-encoder/actions/workflows/ci.yml)
 
@@ -32,6 +32,8 @@
 * 解压：添加压缩包，核对输出目录，点击“开始解压”；完成后可点击“解压结果 → 转码”。
   选中了任务时只传递所选成功结果；未选择时传递全部成功解压的目录。右上角“打包压缩…”用于创建压缩包。
 * 转码：按下面的步骤操作。传递结果只添加输入，不会自动开始转换。
+* C 盘清理：点“① 扫描”看每类垃圾和隐私痕迹有多大，勾选后“② 清理”。
+  带“管理员”的项会弹 UAC 授权；被占用的文件自动跳过。详见 `docs/工具箱说明.md`。
 
 在 **“文本转码”页**：
 
@@ -109,6 +111,10 @@ python txt_encoder_cli.py "D:\稿件" --target utf-8 --mode inplace
 Big5 / Big5-HKSCS / Shift-JIS / EUC-KR / Windows-1252(ANSI) / Latin-1 / ASCII，
 以及任何 Python 认识的编码名（比如 `cp936`、`utf-16-le`）。
 
+**C 盘清理**：临时文件、浏览器缓存、缩略图、最近使用记录、回收站、Windows 更新缓存、
+事件日志等一次看全。只清理位置固定、可再生成的系统目录，先扫描后清理，
+绝不碰你的文档、密码和浏览器登录状态。
+
 **批量转换**的三件事：
 
 | 项目 | 可选做法 |
@@ -171,6 +177,8 @@ python txt_encoder_cli.py <路径...> [选项]
 | `txt_encoder_core.py` | 核心引擎（编码检测 + 转码），可被其它脚本 import |
 | `make_sample_files.py` | 生成一批各种编码的示例文件，方便试手 |
 | `build_exe.py` | 把工具箱打包成单文件 `dist\文件工具箱.exe`（免装 Python 直接运行） |
+| `c_cleaner.py` | C 盘清理（临时文件/浏览器缓存/更新缓存等），含图形页签和管理员任务管道 |
+| `c_cleaner_selftest.py` | C 盘清理核心自检（注入临时目录，不碰真实系统路径） |
 | `selftest.py` | 功能自检（53 项断言，含分块边界用例） |
 | `gui_smoketest.py` | 图形界面自动冒烟测试（自动创建窗口、跑完扫描+转换） |
 | `.github/workflows/ci.yml` | 持续集成：Ubuntu / Windows × Python 3.9 / 3.12 / 3.13 上跑自检和命令行全流程 |
@@ -214,6 +222,7 @@ python gui_smoketest.py   :: 全部通过 ✔ 说明图形界面正常
 python toolbox_selftest.py       :: 下载、暂停续传、压缩解压和转码串联
 python toolbox_gui_smoketest.py  :: 统一窗口内的完整操作流程
 python windows_integration_selftest.py :: 右键菜单安装、更新和移除，使用隔离注册表分支
+python c_cleaner_selftest.py     :: C 盘清理的扫描、清理和管理员任务管道
 ```
 
 ---

@@ -52,6 +52,9 @@ jobs:
       - name: 文件右键菜单自检（Windows 使用隔离注册表分支）
         run: python windows_integration_selftest.py
 
+      - name: C 盘清理自检（扫描统计、年龄保护、占用跳过、管理员任务管道）
+        run: python c_cleaner_selftest.py
+
       - name: 图形界面模块可导入
         # GitHub 的 Linux 运行器没带 tkinter，这一步只在 Windows 上做
         if: runner.os == 'Windows'

@@ -4,12 +4,15 @@
 from __future__ import annotations
 
 import io
+import os
 import tempfile
 import time
 import tkinter as tk
+import tkinter.messagebox
 import zipfile
 from pathlib import Path
 
+import c_cleaner
 import swift_extract as se
 from file_toolbox import ToolboxApp
 from toolbox_selftest import local_server
@@ -43,10 +46,10 @@ def main():
         app.report_callback_exception = report_error
         try:
             app.update()
-            assert len(app.tabs.tabs()) == 3
+            assert len(app.tabs.tabs()) == 4
             # 所有工具共用一个 Tk 解释器，没有额外主窗口。
             assert app.encoder.tk is app.download.root.tk is app.archive_tab.tk
-            print("[通过] 三个工具嵌入同一个窗口")
+            print("[通过] 四个工具嵌入同一个窗口")
 
             app.download.dir_var.set(str(root))
             app.download.name_var.set("下载结果.zip")
@@ -112,6 +115,42 @@ def main():
             with zipfile.ZipFile(packed) as zf:
                 assert zf.read(zf.namelist()[0]) == raw
             print("[通过] 压缩对话框和后台压缩任务可用")
+
+            # C 盘清理页：注入假目录，扫描 → 勾选 → 清理 → 复扫为 0；不碰真实系统路径。
+            clean_root = root / "假垃圾"
+            clean_root.mkdir()
+            stale = clean_root / "旧临时.bin"
+            stale.write_bytes(b"x" * 4096)
+            past = time.time() - 3 * 24 * 3600
+            os.utime(stale, (past, past))
+            fresh = clean_root / "新临时.bin"
+            fresh.write_bytes(b"y" * 100)
+            app.cleaner.engine = c_cleaner.CleanEngine(
+                root_overrides={"user_temp": clean_root}, min_age_hours=24)
+            app.tabs.select(app.cleaner.frame)
+            app.cleaner.scan_btn.invoke()
+            pump(app, lambda: not app.cleaner.busy()
+                 and app.cleaner.clean_btn.instate(["!disabled"]))
+            assert app.cleaner._scans["user_temp"].bytes == 4096
+            for var in app.cleaner.check_vars.values():
+                var.set(False)
+            app.cleaner.check_vars["user_temp"].set(True)
+            app.cleaner._confirm_clean = lambda *args, **kwargs: True
+            popups = []
+            real_showinfo = tkinter.messagebox.showinfo
+            tkinter.messagebox.showinfo = lambda *a, **k: popups.append(a)
+            try:
+                app.cleaner.clean_btn.invoke()
+                pump(app, lambda: not app.cleaner.busy()
+                     and app.cleaner.clean_btn.instate(["!disabled"]))
+            finally:
+                tkinter.messagebox.showinfo = real_showinfo
+            assert not stale.exists(), "超过 24 小时的假垃圾应被清理"
+            assert fresh.exists(), "24 小时内的文件必须保留"
+            assert app.cleaner._scans["user_temp"].bytes == 0
+            assert popups, "清理完成后应弹出结果明细"
+            assert not errors, errors
+            print("[通过] C 盘清理：扫描统计、24 小时保护、勾选清理后复扫为 0")
 
             shell_text = root / "右键 文件 & 感叹! 百分%.TXT"
             shell_text.write_text("MZ 开头的普通 TXT，右键也应进入转码页。", encoding="utf-8")
