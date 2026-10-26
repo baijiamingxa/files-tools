@@ -24,7 +24,7 @@ from txt_encoder_core import ConvertOptions, convert_file, make_console_tolerant
 
 
 @contextmanager
-def local_server(data):
+def local_server(data, slow_delay=0.003):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_):
             pass
@@ -57,7 +57,7 @@ def local_server(data):
                 for offset in range(start, end + 1, 65536):
                     self.wfile.write(data[offset:min(offset + 65536, end + 1)])
                     if self.path == "/slow":
-                        time.sleep(0.003)
+                        time.sleep(slow_delay)
             except OSError:
                 pass
 
@@ -73,6 +73,17 @@ def local_server(data):
 
 
 class ToolboxTests(unittest.TestCase):
+    def test_split_zip_selection_uses_zip_index(self):
+        with tempfile.TemporaryDirectory() as temp:
+            index = Path(temp) / "分卷压缩.zip"
+            first_part = index.with_suffix(".z01")
+            with zipfile.ZipFile(index, "w") as zf:
+                zf.writestr("test.txt", b"volume test")
+            first_part.write_bytes(b"first volume")
+            canonical, group = se.volume_base(str(first_part))
+            self.assertEqual(canonical, str(index))
+            self.assertEqual(se.all_volume_parts(canonical, group), [str(first_part), str(index)])
+
     def test_scheduler_accepts_tasks_while_another_runs(self):
         started = threading.Event()
         release = threading.Event()

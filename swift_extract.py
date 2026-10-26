@@ -216,6 +216,8 @@ def volume_base(path: str):
     lower = p.lower()
     if lower.endswith(".r00") and os.path.isfile(lower[:-4] + ".rar"):
         return lower[:-4] + ".rar", lower[:-4] + ".rar"
+    if lower.endswith(".z01") and os.path.isfile(p[:-4] + ".zip"):
+        return p[:-4] + ".zip", p[:-4] + ".zip"
     # 多卷 zip: xxx.z01 ... xxx.z99 + xxx.zip
     if lower.endswith(".zip"):
         z01 = p[:-4] + ".z01"

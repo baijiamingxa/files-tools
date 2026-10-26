@@ -34,7 +34,7 @@ def main():
     with zipfile.ZipFile(archive_bytes, "w") as zf:
         zf.writestr("中文目录/文稿.txt", raw)
         zf.writestr("data.bin", bytes(range(256)) * 2048)
-    with tempfile.TemporaryDirectory() as temp, local_server(archive_bytes.getvalue()) as base:
+    with tempfile.TemporaryDirectory() as temp, local_server(archive_bytes.getvalue(), slow_delay=0.08) as base:
         root = Path(temp)
         app = ToolboxApp(config_path=root / "settings.json")
         errors = []
@@ -112,6 +112,26 @@ def main():
             with zipfile.ZipFile(packed) as zf:
                 assert zf.read(zf.namelist()[0]) == raw
             print("[通过] 压缩对话框和后台压缩任务可用")
+
+            shell_text = root / "右键 文件 & 感叹! 百分%.TXT"
+            shell_text.write_text("MZ 开头的普通 TXT，右键也应进入转码页。", encoding="utf-8")
+            app.encoder.input_var.set("")
+            app.open_inputs([str(shell_text)])
+            assert app.tabs.select() == str(app.encoder)
+            assert app.encoder.input_var.get() == str(shell_text)
+            assert not (app.encoder._worker and app.encoder._worker.is_alive())
+            shell_zip = root / "右键 压缩包 & 感叹! 百分%.ZIP"
+            shell_zip.write_bytes(packed.read_bytes())
+            app.open_inputs([str(shell_zip)])
+            assert app.tabs.select() == str(app.archive_tab)
+            assert app.archive.jobs[-1].path == str(shell_zip)
+            assert app.archive.jobs[-1].state == "等待"
+            split = root / "右键 分卷.zip.001"
+            split.write_bytes(b"split first volume")
+            app.open_inputs([str(split)])
+            assert app.tabs.select() == str(app.archive_tab)
+            assert app.archive.jobs[-1].path == str(split)
+            print("[通过] 右键输入按类型进入对应页，保留中文、空格和特殊符号，分卷进入解压页")
 
             app.download.name_var.set("关闭时暂停.zip")
             app.download.url_var.set(base + "/slow")

@@ -45,6 +45,17 @@
 
 如果只需要原来的独立转码窗口，运行 `py txt_encoder_gui.py`。
 
+### 直接从文件右键打开
+
+首次使用双击 **`安装右键菜单.bat`**，或在工具箱右上角“文件右键菜单”中选择“安装 / 更新右键菜单”。
+安装后右键 TXT、ZIP、RAR、7z 等文件，选择 **“通过文件工具箱打开”**：
+TXT 进入转码页，压缩包进入解压页，文件路径会自动填好，等待你点击扫描或解压。
+同时会把“文件工具箱”加入相应文件的“打开方式”候选列表。
+
+安装只针对当前用户，无需管理员权限，原默认打开程序保留。
+Windows 11 可在“显示更多选项”中找到菜单；详见 [Microsoft 的右键菜单说明](https://blogs.windows.com/blog/2021/07/19/extending-the-context-menu-and-share-dialog-in-windows-11/)。
+需要移除时双击 **`移除右键菜单.bat`**。移动工具箱目录后，重新安装一次即可更新路径。
+
 ### 方式 2：拖一下就转
 
 把文件或文件夹拖到 **`quick_convert_to_utf8.bat`** 上 —— 直接转成 UTF-8（无 BOM），
@@ -187,6 +198,7 @@ python selftest.py        :: 全部通过 ✔ 说明检测和转码逻辑正常
 python gui_smoketest.py   :: 全部通过 ✔ 说明图形界面正常
 python toolbox_selftest.py       :: 下载、暂停续传、压缩解压和转码串联
 python toolbox_gui_smoketest.py  :: 统一窗口内的完整操作流程
+python windows_integration_selftest.py :: 右键菜单安装、更新和移除，使用隔离注册表分支
 ```
 
 ---

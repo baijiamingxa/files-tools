@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import tkinter as tk
 import traceback
@@ -13,6 +14,7 @@ from tkinter import messagebox, ttk
 import direct_downloader
 import swift_extract
 from txt_encoder_gui import EncoderPanel
+from windows_integration import ARCHIVE_EXTENSIONS
 
 
 class ToolboxApp(tk.Tk):
@@ -32,6 +34,14 @@ class ToolboxApp(tk.Tk):
         header.pack(fill="x")
         ttk.Label(header, text="文件工具箱", font=("Microsoft YaHei UI", 16, "bold")).pack(side="left")
         ttk.Label(header, text="下载 → 解压 → 转码，也可以单独使用每个工具").pack(side="left", padx=20)
+        self.file_menu_btn = ttk.Menubutton(header, text="文件右键菜单")
+        self.file_menu_btn.pack(side="right")
+        self.file_menu = tk.Menu(self.file_menu_btn, tearoff=False)
+        self.file_menu_btn.configure(menu=self.file_menu)
+        for label, action in (("安装 / 更新右键菜单", "install"), ("移除右键菜单", "uninstall"), ("查看安装状态", "status")):
+            self.file_menu.add_command(label=label, command=lambda value=action: self._manage_file_menu(value))
+        if os.name != "nt":
+            self.file_menu_btn.configure(state="disabled")
 
         self.status_var = tk.StringVar(self, value="就绪。结果传到下一页后，由你检查并开始处理。")
         ttk.Label(self, textvariable=self.status_var, padding=(12, 6)).pack(side="bottom", fill="x")
@@ -64,6 +74,23 @@ class ToolboxApp(tk.Tk):
         self.extract_download_btn.configure(state="normal")
         self.encode_download_btn.configure(state="normal")
         self.status_var.set(f"下载完成：{path}。可以送去解压或转码。")
+
+    def _manage_file_menu(self, action):
+        import windows_integration as integration
+        try:
+            if action == "install":
+                count = integration.install()
+                text = (f"已为当前用户启用 {count} 种文件类型。\n\n"
+                        "右键 TXT 或压缩包，选择“通过文件工具箱打开”。\n"
+                        "Windows 11 可在“显示更多选项”中查找。")
+            elif action == "uninstall":
+                integration.uninstall()
+                text = "已移除文件工具箱的右键菜单和打开方式。"
+            else:
+                text = "已安装，指向当前工具箱目录。" if integration.is_installed() else "尚未安装，或需要更新工具箱路径。"
+            messagebox.showinfo("文件右键菜单", text, parent=self)
+        except OSError as exc:
+            messagebox.showerror("设置右键菜单失败", str(exc), parent=self)
 
     def _download_path(self):
         if self.last_download is None or not self.last_download.is_file():
@@ -100,9 +127,10 @@ class ToolboxApp(tk.Tk):
         self.status_var.set("已添加到转码页。请先扫描预览，核对编码与输出目录，再开始转换。")
 
     def open_inputs(self, inputs):
-        """拖到启动器上的文件按用途分派；链接只填入下载框。"""
+        """启动器和右键传入的文件按用途分派；链接只填入下载框。"""
         archives, texts = [], []
         for value in inputs:
+            value = str(value)
             if value.lower().startswith(("https://", "http://")):
                 self.download.url_var.set(value)
                 self.tabs.select(self.download_tab)
@@ -110,7 +138,10 @@ class ToolboxApp(tk.Tk):
             path = Path(value)
             if not path.exists():
                 continue
-            if path.is_file() and swift_extract.detect_format(str(path)) != "unknown":
+            if path.is_file() and path.suffix.lower() != ".txt" and (
+                path.suffix.lower() in ARCHIVE_EXTENSIONS
+                or swift_extract.detect_format(str(path)) != "unknown"
+            ):
                 archives.append(str(path))
             else:
                 texts.append(str(path))

@@ -49,6 +49,9 @@ jobs:
       - name: 工具箱集成自检（本地下载、续传、压缩解压、转码）
         run: python toolbox_selftest.py
 
+      - name: 文件右键菜单自检（Windows 使用隔离注册表分支）
+        run: python windows_integration_selftest.py
+
       - name: 图形界面模块可导入
         # GitHub 的 Linux 运行器没带 tkinter，这一步只在 Windows 上做
         if: runner.os == 'Windows'
