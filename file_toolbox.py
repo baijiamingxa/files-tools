@@ -60,6 +60,8 @@ class ToolboxApp(tk.Tk):
             self.file_menu_btn.configure(state="disabled")
 
         self.runtime = RuntimeController(self, self, on_ready=lambda: self.archive.refresh_engines())
+        self.selfcheck_btn = ttk.Button(header, text="自检", command=self.runtime.self_check)
+        self.selfcheck_btn.pack(side="right", padx=(8, 0), before=self.updater.button)
         self.status_var = tk.StringVar(self, value="就绪。结果传到下一页后，由你检查并开始处理。")
         ttk.Label(self, textvariable=self.status_var, padding=(12, 6)).pack(side="bottom", fill="x")
         self.tabs = ttk.Notebook(self)

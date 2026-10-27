@@ -17,6 +17,8 @@ from unittest.mock import patch
 import c_cleaner
 import storage_tools
 import runtime_manager
+import runtime_gui
+from dependency_check import DependencyResult
 import update_gui
 from download_queue import load_queue
 import swift_extract as se
@@ -62,13 +64,29 @@ def main():
             def ready_runtime(stop, progress, **kwargs):
                 progress("模拟组件检查")
                 return [("测试扩展组件", "可用", "测试目录中的模拟组件")]
-            with patch.object(runtime_manager, "configure", side_effect=ready_runtime):
-                app.runtime.start()
-                app.runtime.show()
-                pump(app, lambda: not app.runtime.busy())
-                assert "全部就绪" in app.runtime.message.get()
-                assert "基础运行环境" in app.runtime.detail.get("1.0", "end")
-                assert "可用" in app.runtime.detail.get("1.0", "end")
+            with patch.object(runtime_manager, "configure", side_effect=ready_runtime) as configure:
+                simulated = [DependencyResult("py7zr", "7z 压缩解压", "未安装（可选）", detail="可使用便携 7-Zip。"),
+                             DependencyResult("zstandard", "Zstd 压缩解压", "可用", "test-1", "测试组件目录", "样本测试通过。")]
+                with patch.object(runtime_gui, "inspect_dependencies", return_value=simulated), patch.object(runtime_manager, "download_verified", side_effect=AssertionError("手动自检不能下载")):
+                    assert app.selfcheck_btn.cget("text") == "自检"
+                    app.selfcheck_btn.invoke()
+                    pump(app, lambda: not app.runtime.busy())
+                    assert configure.call_args.kwargs["auto_install"] is False
+                    assert "全部就绪" in app.runtime.message.get()
+                    assert "基础运行环境" in app.runtime.detail.get("1.0", "end")
+                    assert "可用" in app.runtime.detail.get("1.0", "end")
+                    assert "py7zr" in app.runtime.detail.get("1.0", "end")
+                    table = [app.runtime.tree.item(item, "values") for item in app.runtime.tree.get_children()]
+                    assert any(row[0] == "py7zr" and row[1] == "未安装（可选）" for row in table)
+                    assert any(row[0] == "zstandard" and row[2] == "test-1" for row in table)
+                    app.runtime.copy_report()
+                    assert "py7zr" in app.clipboard_get() and "基础运行环境" in app.clipboard_get()
+                broken = [DependencyResult("pyzipper", "AES ZIP", "自检失败", detail="模拟依赖损坏")]
+                with patch.object(runtime_gui, "inspect_dependencies", return_value=broken):
+                    app.runtime.check_btn.invoke()
+                    pump(app, lambda: not app.runtime.busy())
+                    assert "1 个依赖加载或自检失败" in app.runtime.message.get()
+                    assert "模拟依赖损坏" in app.runtime.detail.get("1.0", "end")
             with patch.object(runtime_manager, "configure", side_effect=OSError("模拟断网")):
                 app.runtime.retry_btn.invoke()
                 pump(app, lambda: not app.runtime.busy())
@@ -79,7 +97,10 @@ def main():
                 stop.wait(10)
                 raise runtime_manager.RuntimeCancelled("模拟取消")
             with patch.object(runtime_manager, "configure", side_effect=waiting_runtime):
-                app.runtime.start()
+                app.selfcheck_btn.invoke()
+                worker = app.runtime.worker
+                app.selfcheck_btn.invoke()
+                assert app.runtime.worker is worker, "自检繁忙时不能重复启动检查线程"
                 app.runtime.cancel()
                 pump(app, lambda: not app.runtime.busy())
                 assert "取消" in app.runtime.message.get()
@@ -90,7 +111,7 @@ def main():
                 pump(app, lambda: not app.runtime.busy())
                 assert "全部就绪" in app.runtime.message.get()
                 app.runtime.window.destroy()
-            print("[通过] 运行环境后台自检、详情、断网重试、取消和重新打开窗口")
+            print("[通过] 右上角自检：逐项依赖状态、版本和位置、复制报告、只检查不下载、异常提示与取消重试")
 
             # 文本替换：GBK 文件预览不写盘，取消确认后不生成副本，执行保留编码。
             replace_source = root / "替换样本.txt"

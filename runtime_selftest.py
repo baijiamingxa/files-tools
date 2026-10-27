@@ -11,11 +11,13 @@ import tempfile
 import threading
 import unittest
 import zipfile
+from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import patch
 
 import archive_runtime as native
 import runtime_manager as runtime
+import dependency_check as dependencies
 import swift_extract as se
 from txt_encoder_core import make_console_tolerant
 
@@ -31,6 +33,51 @@ class Response(io.BytesIO):
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_dependency_missing_and_transitive_failure_are_distinct(self):
+        def importer(name):
+            if name == "pyzipper":
+                raise ModuleNotFoundError("No module named Crypto", name="Crypto")
+            if name == "py7zr":
+                raise OSError("DLL load failed")
+            raise ModuleNotFoundError(f"No module named {name}", name=name)
+        with patch.object(runtime, "download_verified", side_effect=AssertionError("自检不能下载")):
+            rows = {row.name: row for row in dependencies.inspect_dependencies(importer=importer)}
+        self.assertEqual(rows["py7zr"].status, "加载失败")
+        self.assertIn("DLL load failed", rows["py7zr"].detail)
+        self.assertEqual(rows["pyzipper"].status, "加载失败")
+        self.assertIn("Crypto", rows["pyzipper"].detail)
+        self.assertEqual(rows["zstandard"].status, "未安装（可选）")
+        self.assertIn("便携", rows["zstandard"].detail)
+
+    def test_dependency_import_does_not_hide_operational_failure(self):
+        def importer(name):
+            if name == "zstandard":
+                return SimpleNamespace(__version__="test-1", __file__="test/zstandard.py",
+                    ZstdCompressor=lambda: SimpleNamespace(compress=lambda data: b"packed"),
+                    ZstdDecompressor=lambda: SimpleNamespace(decompress=lambda data: b"bad contents"))
+            raise ModuleNotFoundError(name, name=name)
+        rows = {row.name: row for row in dependencies.inspect_dependencies(importer=importer)}
+        self.assertEqual(rows["zstandard"].status, "自检失败")
+        self.assertEqual(rows["zstandard"].version, "test-1")
+        self.assertEqual(rows["zstandard"].location, "test/zstandard.py")
+        self.assertIn("内容不一致", rows["zstandard"].detail)
+
+    def test_dependency_roundtrip_version_and_cancellation(self):
+        def importer(name):
+            if name == "zstandard":
+                return SimpleNamespace(__version__="test-2", __file__="local/zstandard.py",
+                    ZstdCompressor=lambda: SimpleNamespace(compress=lambda data: data[::-1]),
+                    ZstdDecompressor=lambda: SimpleNamespace(decompress=lambda data: data[::-1]))
+            raise ModuleNotFoundError(name, name=name)
+        rows = {row.name: row for row in dependencies.inspect_dependencies(importer=importer)}
+        self.assertEqual(rows["zstandard"].status, "可用")
+        self.assertIn("test-2", rows["zstandard"].report())
+        self.assertEqual(dependencies.python_result().status, "可用")
+        stop = threading.Event()
+        stop.set()
+        with self.assertRaises(runtime.RuntimeCancelled):
+            dependencies.inspect_dependencies(stop, importer=importer)
+
     def test_download_verified(self):
         with tempfile.TemporaryDirectory() as temp:
             target = Path(temp) / "engine.exe"
