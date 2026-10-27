@@ -89,10 +89,9 @@ class ToolboxApp(tk.Tk):
             if path.is_file():
                 self._icon_images.append(tk.PhotoImage(master=self, file=str(path)))
         if self._icon_images:
+            # Tk 的 ICO 读取器对 PNG 压缩帧支持不完整；窗口直接使用透明 PNG。
+            # EXE 文件和资源管理器仍使用打包时嵌入的多尺寸 ICO。
             self.iconphoto(True, *self._icon_images)
-        icon = assets / "app-icon.ico"
-        if os.name == "nt" and icon.is_file():
-            self.iconbitmap(default=str(icon))
 
     def _forward_status(self, text):
         self.status_var.set(text)
