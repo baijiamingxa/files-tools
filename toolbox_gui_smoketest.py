@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 import c_cleaner
 import storage_tools
+import runtime_manager
 import swift_extract as se
 from file_toolbox import ToolboxApp
 from toolbox_selftest import local_server
@@ -42,7 +43,7 @@ def main():
         zf.writestr("data.bin", bytes(range(256)) * 2048)
     with tempfile.TemporaryDirectory() as temp, local_server(archive_bytes.getvalue(), slow_delay=0.08) as base:
         root = Path(temp)
-        app = ToolboxApp(config_path=root / "settings.json")
+        app = ToolboxApp(config_path=root / "settings.json", startup_check=False)
         errors = []
         def report_error(kind, value, trace):
             errors.append(f"{kind.__name__}: {value}")
@@ -54,6 +55,40 @@ def main():
             # 所有工具共用一个 Tk 解释器，没有额外主窗口。
             assert app.encoder.tk is app.download.root.tk is app.archive_tab.tk
             print("[通过] 七个工具嵌入同一个窗口")
+
+            # 环境界面使用模拟检测，不访问外网，也不写真实运行组件目录。
+            def ready_runtime(stop, progress, **kwargs):
+                progress("模拟组件检查")
+                return [("测试扩展组件", "可用", "测试目录中的模拟组件")]
+            with patch.object(runtime_manager, "configure", side_effect=ready_runtime):
+                app.runtime.start()
+                app.runtime.show()
+                pump(app, lambda: not app.runtime.busy())
+                assert "全部就绪" in app.runtime.message.get()
+                assert "基础运行环境" in app.runtime.detail.get("1.0", "end")
+                assert "可用" in app.runtime.detail.get("1.0", "end")
+            with patch.object(runtime_manager, "configure", side_effect=OSError("模拟断网")):
+                app.runtime.retry_btn.invoke()
+                pump(app, lambda: not app.runtime.busy())
+                assert "模拟断网" in app.runtime.detail.get("1.0", "end")
+                assert str(app.runtime.retry_btn.cget("state")) == "normal"
+            def waiting_runtime(stop, progress, **kwargs):
+                progress("等待取消")
+                stop.wait(10)
+                raise runtime_manager.RuntimeCancelled("模拟取消")
+            with patch.object(runtime_manager, "configure", side_effect=waiting_runtime):
+                app.runtime.start()
+                app.runtime.cancel()
+                pump(app, lambda: not app.runtime.busy())
+                assert "取消" in app.runtime.message.get()
+            app.runtime.window.destroy()
+            with patch.object(runtime_manager, "configure", side_effect=ready_runtime):
+                app.runtime.show()
+                app.runtime.retry_btn.invoke()
+                pump(app, lambda: not app.runtime.busy())
+                assert "全部就绪" in app.runtime.message.get()
+                app.runtime.window.destroy()
+            print("[通过] 运行环境后台自检、详情、断网重试、取消和重新打开窗口")
 
             app.download.dir_var.set(str(root))
             app.download.name_var.set("下载结果.zip")

@@ -4,7 +4,7 @@
 
 > A Windows GUI for downloads, archives, text encoding conversion, cleanup, batch renaming, folder size analysis and duplicate-file finding.
 > Double-click `run_gui.bat` or `启动文件工具箱.bat`. The original command-line tools remain available.
-> Core features use the Python standard library. Extra archive formats use optional engines already installed on the machine.
+> Core features use the Python standard library. On first launch, missing portable archive engines are downloaded and verified automatically.
 
 直链下载、压缩解压、文本转码、C 盘清理、批量重命名、空间分析和重复文件共用一个窗口，七个页签可以独立使用，
 也可以按“下载 → 解压 → 转码”衔接处理。仓库地址和原有转码命令行接口保持兼容。
@@ -19,8 +19,9 @@
 | 空间分析 | 按逻辑大小列出文件和文件夹、大小排序和筛选、目录下钻、打开位置、选中后确认删除 |
 | 重复文件 | 先按大小分组，再完整计算 SHA-256；建议保留最新副本，勾选删除且每组至少留一份 |
 
-这些基础功能**只依赖 Python 标准库，无需 pip 安装**。7z、AES ZIP、zst、RAR 等额外格式的
-可用情况取决于本机已有扩展库或 WinRAR/UnRAR，详见[工具箱说明](docs/工具箱说明.md)。
+这些基础功能**只依赖 Python 标准库，无需 pip 安装**。首次启动会自检运行环境，7z、AES ZIP、
+zst、RAR 所需扩展引擎不足时，自动从官方来源下载并校验便携组件；已有可用组件会直接复用。
+右上角“运行环境…”可查看进度、取消和重试，详见[工具箱说明](docs/工具箱说明.md#首次启动运行环境自检)。
 
 ![批量重命名页](docs/rename.png)
 

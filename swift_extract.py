@@ -3,15 +3,15 @@
 """
 疾速解压 SwiftExtract
 ======================
-高速多格式压缩/解压工具。zip / 7z / tar 系内核全部为纯 Python 自研，
-不依赖 7-Zip/WinRAR 等外部软件（WinRAR 仅作 RAR 等专有格式的可选加速）。
+高速多格式压缩/解压工具。基础 ZIP / TAR 使用 Python 标准库，
+额外格式可使用工具箱自动配置的便携 7-Zip / Zstd 或已有可选引擎。
 
 特性：
   * 解压"分流引擎"——ZIP 多文件并行 + 大文件分块并行拷贝 + 解压/写盘双线程流水线
   * 压缩"并行引擎"——大文件线程池预压缩 + 超大文件块级并行 deflate + 顺序组装
   * 压缩格式：zip(可 AES-256 加密, zip64) / 7z(可加密) / tar / tar.gz / tar.xz / tar.zst
   * 解压格式：上述全部 + ZipCrypto 加密 zip + gz/bz2/xz/zst 单文件流
-  * RAR / CAB / ISO / ARJ / LZH / MSI：检测到 WinRAR/UnRAR 时自动启用
+  * RAR / CAB / ISO / ARJ / LZH / MSI：使用便携 7-Zip 或已有 WinRAR/UnRAR
   * 分卷：.001 合并 / RAR .partN / 多卷 zip(.z01)
   * 中文 ZIP 文件名 GBK 修复、路径穿越(zip-slip)防护、原子写入
   * 图形界面（拖拽/批量/进度/弹窗要密码/打包压缩对话框） + 命令行双模式
@@ -40,6 +40,8 @@ import threading
 import time
 import zipfile
 import zlib
+import runtime_manager
+import archive_runtime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 
@@ -449,6 +451,10 @@ def run_zip(job: Job, opts: Options):
             elif WINRAR:
                 job.backend = "WinRAR(AES)"
                 return run_external(job, opts)
+            elif runtime_manager.get_tool("7zip"):
+                return archive_runtime.extract(job, opts)
+            else:
+                raise EngineError("缺少 AES ZIP 引擎，请在工具箱“运行环境”中检测并补齐。")
         if encrypted and not job.password:
             raise NeedPassword("压缩包已加密")
 
@@ -944,11 +950,14 @@ def run_split_concat(job: Job, opts: Options):
         job.kind = "rar"
         return dispatch_engine(job, opts)
     if canonical.lower().endswith(".zip"):
-        # 多卷 zip（.z01+.zip）：zipfile 不支持跨卷，交给 WinRAR
+        # 多卷 zip（.z01+.zip）：zipfile 不支持跨卷，交给扩展引擎。
+        if runtime_manager.get_tool("7zip"):
+            job.path, job.kind = canonical, "zip"
+            return archive_runtime.extract(job, opts)
         if WINRAR:
             job.kind = "zip"
             return run_external(job, opts, WINRAR, "WinRAR")
-        raise EngineError("多卷 zip 需要 WinRAR 支持")
+        raise EngineError("多卷 ZIP 需要扩展引擎，请在“运行环境”中检测并补齐。")
 
     job.backend = "合并分卷"
     job.bytes_total = sum(os.path.getsize(p) for p in parts)
@@ -1288,7 +1297,7 @@ def run_zip_compress(job: Job, opts: Options):
 def run_zip_aes_compress(job: Job, opts: Options):
     """加密 zip（WinZip AES-256，pyzipper 单线程写）。"""
     if not pyzipper:
-        raise EngineError("未安装 pyzipper，无法加密压缩（pip install pyzipper）")
+        raise EngineError("缺少 AES ZIP 引擎，请在“运行环境”中检测并补齐。")
     entries = _gather_entries(job.sources)
     if not entries:
         raise EngineError("没有可压缩的内容")
@@ -1349,7 +1358,7 @@ def run_tar_compress(job: Job, opts: Options):
                 comp_fh = lzma.LZMAFile(raw_fh, mode="wb", preset=level or 1)
             elif fmt == "tar.zst":
                 if not zstandard:
-                    raise EngineError("未安装 zstandard（pip install zstandard）")
+                    raise EngineError("缺少 Zstd 引擎，请在“运行环境”中检测并补齐。")
                 zlvl = {0: 1, 1: 1, 6: 3, 9: 19}[level]
                 comp_fh = zstandard.ZstdCompressor(level=zlvl).stream_writer(raw_fh)
             else:
@@ -1387,7 +1396,7 @@ def run_tar_compress(job: Job, opts: Options):
 def run_7z_compress(job: Job, opts: Options):
     """7z 压缩（py7zr，纯 Python；可加密 AES-256）。"""
     if not py7zr:
-        raise EngineError("未安装 py7zr（pip install py7zr）")
+        raise EngineError("缺少 7z 引擎，请在“运行环境”中检测并补齐。")
     entries = _gather_entries(job.sources)
     if not entries:
         raise EngineError("没有可压缩的内容")
@@ -1427,6 +1436,11 @@ def run_7z_compress(job: Job, opts: Options):
 def run_compress(job: Job, opts: Options):
     fmt = job.kind or fmt_from_ext(job.path) or "zip"
     job.kind = fmt
+    if ((fmt == "7z" and not py7zr) or (fmt == "zip" and job.password and not pyzipper)):
+        if runtime_manager.get_tool("7zip"):
+            return archive_runtime.compress(job, opts)
+    if fmt == "tar.zst" and not zstandard and runtime_manager.get_tool("zstd"):
+        return archive_runtime.compress_tar_zstd(job, opts)
     if fmt == "zip":
         if job.password:
             return run_zip_aes_compress(job, opts)
@@ -1451,26 +1465,33 @@ def dispatch_engine(job: Job, opts: Options):
     if kind in ("tar", "gzip", "bzip2", "xz", "zst"):
         job.backend = "流式引擎"
         if kind == "zst" and not zstandard:
+            if runtime_manager.get_tool("7zip"):
+                return archive_runtime.extract(job, opts)
             if WINRAR:
                 return run_external(job, opts, WINRAR, "WinRAR")
-            raise EngineError("缺少 zstandard 库（pip install zstandard）")
+            raise EngineError("缺少 Zstd 解压引擎，请在“运行环境”中检测并补齐。")
         return run_stream(job, opts)
     if kind == "7z":
         # 优先纯 Python 引擎（无外部软件依赖）；性能需求可用 WINRAR_HOME 覆盖
         if py7zr:
             return run_py7zr(job, opts)
+        if runtime_manager.get_tool("7zip"):
+            return archive_runtime.extract(job, opts)
         if WINRAR:
             return run_external(job, opts, WINRAR, "WinRAR")
-        raise EngineError("无法解压 7z：请 pip install py7zr（纯 Python 实现）")
+        raise EngineError("缺少 7z 引擎，请在“运行环境”中检测并补齐。")
     if kind == "rar":
+        if runtime_manager.get_tool("7zip"):
+            return archive_runtime.extract(job, opts)
         if UNRAR or WINRAR:
             return run_external(job, opts, label="UnRAR" if UNRAR else "WinRAR")
-        raise EngineError("RAR 为专有压缩算法，纯 Python 无法解码；"
-                          "安装 WinRAR 后本工具会自动调用其 UnRAR 内核")
+        raise EngineError("缺少 RAR 引擎，请在“运行环境”中检测并补齐。")
     if kind in ("cab", "iso", "arj", "lzh", "uue", "jar", "lz", "msi", "exe", "unknown"):
+        if runtime_manager.get_tool("7zip"):
+            return archive_runtime.extract(job, opts)
         if WINRAR or UNRAR:
             return run_external(job, opts, label="WinRAR" if WINRAR else "UnRAR")
-        raise EngineError(f"格式 {kind} 需要 WinRAR 内核支持（未检测到）")
+        raise EngineError(f"格式 {kind} 需要扩展引擎，请在“运行环境”中检测并补齐。")
     raise EngineError(f"未知格式: {kind}")
 
 
@@ -1656,17 +1677,24 @@ def run_gui(parent=None, config_path=None, on_output=None):
     top = ttk.Frame(root, padding=(12, 8, 12, 4))
     top.pack(fill="x")
     ttk.Label(top, text="⚡ 疾速解压", font=("Microsoft YaHei UI", 15, "bold")).pack(side="left")
-    badges = []
-    badges.append(f"分流引擎×{auto_workers()}")
-    badges.append("WinRAR✓" if WINRAR else "WinRAR✗")
-    badges.append("UnRAR✓" if UNRAR else "UnRAR✗")
-    if py7zr:
-        badges.append("py7zr✓")
-    if pyzipper:
-        badges.append("AES✓")
-    if zstandard:
-        badges.append("zstd✓")
-    ttk.Label(top, text="   引擎: " + " | ".join(badges), foreground="#666").pack(side="left", padx=8)
+    engine_label = ttk.Label(top, foreground="#666")
+    engine_label.pack(side="left", padx=8)
+
+    def refresh_engines():
+        badges = [f"分流引擎×{auto_workers()}"]
+        if runtime_manager.get_tool("7zip", discover=False):
+            badges.append("7-Zip✓（7z / RAR / AES）")
+        if WINRAR or UNRAR:
+            badges.append("WinRAR / UnRAR✓")
+        if py7zr:
+            badges.append("py7zr✓")
+        if pyzipper:
+            badges.append("AES✓")
+        if zstandard or runtime_manager.get_tool("zstd", discover=False):
+            badges.append("Zstd✓")
+        engine_label.configure(text="   引擎: " + " | ".join(badges))
+
+    refresh_engines()
 
     # ---------- 工具行 ----------
     bar = ttk.Frame(root, padding=(12, 2, 12, 4))
@@ -1838,7 +1866,7 @@ def run_gui(parent=None, config_path=None, on_output=None):
         win.title("打包压缩")
         win.geometry("680x460")
         win.transient(root.winfo_toplevel())
-        ttk.Label(win, text="📦 打包压缩（纯 Python 内核，支持 zip / 7z / tar 系）",
+        ttk.Label(win, text="📦 打包压缩（支持 zip / 7z / tar 系）",
                   font=("Microsoft YaHei UI", 12, "bold")).pack(anchor="w", padx=12, pady=(10, 4))
 
         srcs = []
@@ -2164,6 +2192,7 @@ def run_gui(parent=None, config_path=None, on_output=None):
         add_paths=add_paths, start_all=start_all, add_compress_job=add_compress_job,
         open_compress_dialog=open_compress_dialog, selected_outputs=selected_outputs,
         send_output=send_output, busy=busy, stop_all=stop_all, shutdown=shutdown,
+        refresh_engines=refresh_engines,
     )
     if standalone:
         def close_window():

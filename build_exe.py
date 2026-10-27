@@ -27,10 +27,10 @@ def main():
         print("未找到 PyInstaller。请先执行：py -m pip install pyinstaller")
         return 1
     icon = ASSETS / "app-icon.ico"
-    resources = [icon, ASSETS / "app-icon-32.png", ASSETS / "app-icon-64.png"]
+    resources = [icon, ASSETS / "app-icon-32.png", ASSETS / "app-icon-64.png", ASSETS / "zstd-license.txt"]
     for path in resources:
         if not path.is_file():
-            print(f"找不到图标：{path}，请先运行 build_icon.ps1。")
+            print(f"找不到打包资源：{path}，请恢复该资源后重试（图标可用 build_icon.ps1 重建）。")
             return 1
     args = [
         sys.executable, "-m", "PyInstaller",

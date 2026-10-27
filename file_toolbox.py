@@ -17,12 +17,13 @@ import swift_extract
 from c_cleaner import CleanerPanel
 from batch_rename_gui import RenamePanel
 from storage_gui import StoragePanel
+from runtime_gui import RuntimeController
 from txt_encoder_gui import EncoderPanel
 from windows_integration import ARCHIVE_EXTENSIONS
 
 
 class ToolboxApp(tk.Tk):
-    def __init__(self, config_path=None):
+    def __init__(self, config_path=None, startup_check=True):
         if os.name == "nt":
             import ctypes
             # 源码运行时也以工具箱自己的身份分组任务栏图标。
@@ -52,6 +53,7 @@ class ToolboxApp(tk.Tk):
         if os.name != "nt":
             self.file_menu_btn.configure(state="disabled")
 
+        self.runtime = RuntimeController(self, self, on_ready=lambda: self.archive.refresh_engines())
         self.status_var = tk.StringVar(self, value="就绪。结果传到下一页后，由你检查并开始处理。")
         ttk.Label(self, textvariable=self.status_var, padding=(12, 6)).pack(side="bottom", fill="x")
         self.tabs = ttk.Notebook(self)
@@ -85,6 +87,10 @@ class ToolboxApp(tk.Tk):
             parent=self.archive_tab, config_path=config_path, on_output=self.send_to_encoder)
 
         self.protocol("WM_DELETE_WINDOW", self.request_close)
+        if startup_check:
+            self.after(350, self.runtime.start)
+        else:
+            self.runtime.message.set("运行环境：自动检测已停用（测试模式）。")
 
     def _set_app_icon(self):
         assets = Path(__file__).resolve().parent / "assets"
@@ -200,6 +206,7 @@ class ToolboxApp(tk.Tk):
             or self.renamer.busy()
             or self.space.busy()
             or self.duplicates.busy()
+            or self.runtime.busy()
         )
 
     def request_close(self):
@@ -214,6 +221,7 @@ class ToolboxApp(tk.Tk):
         self.renamer.shutdown()
         self.space.shutdown()
         self.duplicates.shutdown()
+        self.runtime.shutdown()
         self.withdraw()
         self._finish_close()
 
