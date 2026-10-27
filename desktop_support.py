@@ -15,7 +15,7 @@ import urllib.request
 from pathlib import Path
 
 APP_VERSION = "1.3.0"
-REPO = "baijiamingxa/txt-encoder"
+REPO = "baijiamingxa/files-tools"
 RELEASES_URL = f"https://github.com/{REPO}/releases"
 
 

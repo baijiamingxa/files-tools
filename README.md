@@ -1,6 +1,6 @@
 # 文件工具箱 1.3.0 · 下载 / 压缩解压 / 转码 / 清理 / 重命名 / 空间整理 / 文本替换 / 文件校验 / 文档-PDF
 
-[![CI](https://github.com/baijiamingxa/txt-encoder/actions/workflows/ci.yml/badge.svg)](https://github.com/baijiamingxa/txt-encoder/actions/workflows/ci.yml)
+[![CI](https://github.com/baijiamingxa/files-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/baijiamingxa/files-tools/actions/workflows/ci.yml)
 
 > A Windows GUI for queued downloads, archives, encoding conversion, cleanup, renaming, storage analysis, duplicate finding, text replacement and checksums.
 > Double-click `run_gui.bat` or `启动文件工具箱.bat`. The original command-line tools remain available.
