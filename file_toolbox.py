@@ -22,7 +22,12 @@ from windows_integration import ARCHIVE_EXTENSIONS
 
 class ToolboxApp(tk.Tk):
     def __init__(self, config_path=None):
+        if os.name == "nt":
+            import ctypes
+            # 源码运行时也以工具箱自己的身份分组任务栏图标。
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("TxtEncoder.FileToolbox")
         super().__init__()
+        self._set_app_icon()
         self.title("文件工具箱 · 下载 / 压缩解压 / 文本转码 / C 盘清理 / 批量重命名")
         width = max(1100, min(1200, self.winfo_screenwidth() - 60))
         height = max(660, min(860, self.winfo_screenheight() - 100))
@@ -75,6 +80,19 @@ class ToolboxApp(tk.Tk):
             parent=self.archive_tab, config_path=config_path, on_output=self.send_to_encoder)
 
         self.protocol("WM_DELETE_WINDOW", self.request_close)
+
+    def _set_app_icon(self):
+        assets = Path(__file__).resolve().parent / "assets"
+        self._icon_images = []
+        for size in (64, 32):
+            path = assets / f"app-icon-{size}.png"
+            if path.is_file():
+                self._icon_images.append(tk.PhotoImage(master=self, file=str(path)))
+        if self._icon_images:
+            self.iconphoto(True, *self._icon_images)
+        icon = assets / "app-icon.ico"
+        if os.name == "nt" and icon.is_file():
+            self.iconbitmap(default=str(icon))
 
     def _forward_status(self, text):
         self.status_var.set(text)

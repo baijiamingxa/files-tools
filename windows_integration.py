@@ -43,6 +43,9 @@ def registration_entries(app_dir=None, python_exe=None):
         # 直接执行解释器，不经过 cmd；文件名中的空格、&、!、% 都保持原样。
         command = f'"{interpreter}" "{script}" "%1"'
         icon = f'"{interpreter}",0'
+        app_icon = app_dir / "assets" / "app-icon.ico"
+        if app_icon.is_file():
+            icon = f'"{app_icon}",0'
     entries = {
         PROG_ID: {"": "文件工具箱", "FriendlyTypeName": "文件工具箱", "InstallDir": str(app_dir)},
         PROG_ID + r"\DefaultIcon": {"": icon},

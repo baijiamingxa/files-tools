@@ -47,6 +47,7 @@ def main():
         try:
             app.update()
             assert len(app.tabs.tabs()) == 5
+            assert sorted(image.width() for image in app._icon_images) == [32, 64]
             # 所有工具共用一个 Tk 解释器，没有额外主窗口。
             assert app.encoder.tk is app.download.root.tk is app.archive_tab.tk
             print("[通过] 五个工具嵌入同一个窗口")

@@ -17,6 +17,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 APP_NAME = "文件工具箱"
+ASSETS = HERE / "assets"
 
 
 def main():
@@ -25,12 +26,21 @@ def main():
     except ImportError:
         print("未找到 PyInstaller。请先执行：py -m pip install pyinstaller")
         return 1
+    icon = ASSETS / "app-icon.ico"
+    resources = [icon, ASSETS / "app-icon-32.png", ASSETS / "app-icon-64.png"]
+    for path in resources:
+        if not path.is_file():
+            print(f"找不到图标：{path}，请先运行 build_icon.ps1。")
+            return 1
     args = [
         sys.executable, "-m", "PyInstaller",
         "--noconfirm", "--clean", "--onefile", "--windowed",
         "--name", APP_NAME,
-        "file_toolbox.py",
+        "--icon", str(icon),
     ]
+    for path in resources:
+        args.extend(["--add-data", f"{path}:assets"])
+    args.append("file_toolbox.py")
     print("开始打包，通常需要一两分钟…")
     result = subprocess.run(args, cwd=HERE)
     if result.returncode != 0:
