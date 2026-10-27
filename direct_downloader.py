@@ -20,12 +20,16 @@ import json
 import math
 import os
 import re
+import shutil
 import sys
 import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
+
+from download_queue import QueueItem, import_links, load_queue, parse_links, save_queue
 
 CHUNK = 256 * 1024          # 每次读写块大小
 DEFAULT_THREADS = 8
@@ -590,7 +594,7 @@ def cli_download(args):
 
 # ---------- 图形界面 ----------
 class App:
-    def __init__(self, root, embedded=False, on_complete=None):
+    def __init__(self, root, embedded=False, on_complete=None, queue_path=None):
         global tk, filedialog, ttk
         import tkinter as tk
         from tkinter import filedialog, ttk
@@ -603,7 +607,23 @@ class App:
         self.job = None
         self.job_thread = None
         self.msg_queue = []
+        self.queue_path = Path(queue_path) if queue_path is not None else Path(os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))) / "文件工具箱" / "下载队列.json"
+        self.queue_items = []
+        self.queue_running = False
+        self.queue_current = None
+        self._closing = False
+        self._job_pending = False
+        self._queue_load_error = False
+        load_error = ""
+        try:
+            self.queue_items = load_queue(self.queue_path)
+        except (OSError, ValueError, TypeError) as exc:
+            load_error = str(exc)
+            self._queue_load_error = True
         self._build()
+        self._render_queue()
+        if load_error:
+            self._append_log(f"旧队列未载入（配置已保留）：{load_error}")
         self._tick()
 
     def _build(self):
@@ -659,9 +679,33 @@ class App:
         self.stat_lbl = ttk.Label(self.root, text="", font=("Consolas", 9))
         self.stat_lbl.pack(fill="x", padx=8)
 
-        self.log = tk.Text(self.root, height=9, state="disabled",
+        self.lower_tabs = ttk.Notebook(self.root)
+        self.lower_tabs.pack(fill="both", expand=True, padx=8, pady=4)
+        log_tab = ttk.Frame(self.lower_tabs)
+        queue_tab = ttk.Frame(self.lower_tabs, padding=6)
+        self.lower_tabs.add(log_tab, text="下载日志")
+        self.lower_tabs.add(queue_tab, text="批量下载队列")
+        self.queue_tab = queue_tab
+        self.log = tk.Text(log_tab, height=8, state="disabled",
                            font=("Microsoft YaHei UI", 9))
-        self.log.pack(fill="both", expand=True, padx=8, pady=4)
+        self.log.pack(fill="both", expand=True)
+        ttk.Label(queue_tab, text="每行一个完整链接；任务加入时保存上方目录和线程数，按顺序下载。重启后需手动继续。").pack(anchor="w")
+        self.queue_text = tk.Text(queue_tab, height=3, wrap="none")
+        self.queue_text.pack(fill="x", pady=4)
+        queue_actions = ttk.Frame(queue_tab)
+        queue_actions.pack(fill="x", pady=(0, 4))
+        for title, command in (("添加链接", self.add_queue_text), ("导入 TXT…", self.import_queue), ("开始 / 继续队列", self.start_queue), ("暂停队列", self.pause_queue), ("重试失败", self.retry_failed), ("移除所选", self.remove_queue), ("清空完成", self.clear_completed), ("使用所选结果", self.use_queue_result)):
+            ttk.Button(queue_actions, text=title, command=command).pack(side="left", padx=(0, 5))
+        frame = ttk.Frame(queue_tab)
+        frame.pack(fill="both", expand=True)
+        self.queue_tree = ttk.Treeview(frame, columns=("state", "url", "path", "error"), show="headings", height=5)
+        for name, title, width in (("state", "状态", 85), ("url", "链接", 360), ("path", "保存位置", 290), ("error", "错误", 250)):
+            self.queue_tree.heading(name, text=title)
+            self.queue_tree.column(name, width=width, minwidth=70)
+        scroll = ttk.Scrollbar(frame, orient="vertical", command=self.queue_tree.yview)
+        self.queue_tree.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+        self.queue_tree.pack(fill="both", expand=True)
 
     # -- helpers --
     def _paste(self):
@@ -688,30 +732,33 @@ class App:
         else:
             self.msg_queue.append(("prog", done, total))
 
-    def _start(self):
-        if self.job_thread and self.job_thread.is_alive():
-            return
-        url = self.url_var.get().strip()
+    def _start(self, queue_item=None):
+        if self._job_pending or (self.job_thread and self.job_thread.is_alive()):
+            return False
+        if self.queue_running and queue_item is None:
+            self._append_log("队列正在执行，请先暂停队列再单独下载。")
+            return False
+        url = queue_item.url if queue_item else self.url_var.get().strip()
         if not url:
             self._append_log("请先输入下载链接")
             return
         if not re.match(r"https?://", url, re.I):
             url = "http://" + url
-        d = self.dir_var.get().strip() or os.getcwd()
-        name = self.name_var.get().strip()
+        d = queue_item.directory if queue_item else self.dir_var.get().strip() or os.getcwd()
+        name = os.path.basename(queue_item.path) if queue_item and queue_item.path else ("" if queue_item else self.name_var.get().strip())
         if name and safe_filename(name) != name:
             self._append_log("文件名含路径或非法字符，请只填写文件名。")
             return
         save = os.path.join(d, name) if name else None
         try:
-            threads = self.threads_var.get()
+            threads = queue_item.threads if queue_item else self.threads_var.get()
             os.makedirs(d, exist_ok=True)
             if save and os.path.exists(save):
                 self._append_log("文件已存在，请更换文件名；原文件已保留。")
-                return
+                return False
         except (OSError, tk.TclError) as exc:
             self._append_log(f"无法开始下载: {exc}")
-            return
+            return False
         self.job = DownloadJob(url, save, threads,
                                status_cb=self._on_status, save_dir=d)
         self.start_btn.configure(state="disabled")
@@ -720,19 +767,22 @@ class App:
         self._append_log(f"开始: {url}")
         self.job_thread = threading.Thread(target=self._job_worker,
                                            daemon=True)
+        self._job_pending = True
         self.job_thread.start()
+        return True
 
     def _job_worker(self):
         self.job.run()
         if self.job.error:
             self.msg_queue.append(("log", f"错误: {self.job.error}"))
-            self.msg_queue.append(("done", None))
+            self.msg_queue.append(("done", None, self.job.save_path))
         elif self.job.finished:
-            self.msg_queue.append(("done", self.job.save_path))
+            self.msg_queue.append(("done", self.job.save_path, self.job.save_path))
         else:
-            self.msg_queue.append(("done", False))
+            self.msg_queue.append(("done", False, self.job.save_path))
 
     def _cancel(self):
+        self.queue_running = False
         if self.job:
             self.job.cancel_event.set()
             self.state_lbl.configure(text="正在停止...")
@@ -747,6 +797,10 @@ class App:
             if m[0] == "log":
                 self._append_log(m[1])
             elif m[0] == "prog":
+                if self.queue_current and not self.queue_current.path and self.job.save_path:
+                    self.queue_current.path = self.job.save_path
+                    self._save_queue()
+                    self._render_queue()
                 done, total = m[1], m[2]
                 sp = meter.update(done)
                 if total:
@@ -760,7 +814,18 @@ class App:
                     self.stat_lbl.configure(text=(
                         f"已下载 {fmt_size(done)}   速度 {fmt_speed(sp)}"))
             elif m[0] == "done":
+                self._job_pending = False
                 path = m[1]
+                if self.queue_current:
+                    item = self.queue_current
+                    item.path = m[2] or item.path
+                    item.status = "失败" if path is None else "已暂停" if path is False else "完成"
+                    item.error = str(self.job.error or "")
+                    self.queue_current = None
+                    if path is False:
+                        self.queue_running = False
+                    self._save_queue()
+                    self._render_queue()
                 self._meter = None
                 if path is None:
                     self.state_lbl.configure(text="失败")
@@ -775,12 +840,151 @@ class App:
                         self.on_complete(path)
                 self.start_btn.configure(state="normal")
                 self.cancel_btn.configure(state="disabled")
+                if self.queue_running:
+                    self.start_btn.configure(state="disabled")
+                    self.root.after(80, self._start_next)
         self._tick_after = self.root.after(120, self._tick)
 
     def shutdown(self):
+        self._closing = True
+        self.queue_running = False
+        if self.queue_current:
+            self.queue_current.status = "已暂停"
+            self.queue_current.path = self.job.save_path or self.queue_current.path
+        self._save_queue()
         if self.job:
             self.job.cancel_event.set()
         self.root.after_cancel(self._tick_after)
+
+    def busy(self):
+        return self.queue_running or (self._job_pending and not self._closing) or bool(self.job_thread and self.job_thread.is_alive())
+
+    def finish_shutdown(self):
+        # 关闭请求到工作线程退出之间，最后一个任务仍可能正常完成。
+        if self.queue_current:
+            item = self.queue_current
+            item.path = self.job.save_path or item.path
+            item.status = "完成" if self.job.finished else "已暂停"
+            item.error = str(self.job.error or "")
+            self.queue_current = None
+            self._save_queue()
+
+    def _save_queue(self):
+        try:
+            if self._queue_load_error and self.queue_path.is_file():
+                backup = self.queue_path.with_name(self.queue_path.name + ".invalid-" + str(time.time_ns()) + ".bak")
+                shutil.copyfile(self.queue_path, backup)
+                self._append_log(f"无法读取的旧队列已备份：{backup}")
+                self._queue_load_error = False
+            save_queue(self.queue_items, self.queue_path)
+        except OSError as exc:
+            self._append_log(f"队列保存失败：{exc}")
+
+    def _render_queue(self):
+        selected = self.queue_tree.selection()
+        self.queue_tree.delete(*self.queue_tree.get_children())
+        for item in self.queue_items:
+            self.queue_tree.insert("", "end", iid=item.identity, values=(item.status, item.url, item.path or item.directory, item.error))
+        for item in selected:
+            if self.queue_tree.exists(item):
+                self.queue_tree.selection_add(item)
+
+    def add_links(self, links):
+        directory = os.path.abspath(self.dir_var.get().strip() or os.getcwd())
+        threads = self.threads_var.get()
+        if not 1 <= threads <= 64:
+            raise ValueError("线程数应为 1～64。")
+        if len(self.queue_items) + len(links) > 5000:
+            raise ValueError("队列最多 5000 条，请先清理已完成任务。")
+        existing = {(item.url, os.path.normcase(item.directory)) for item in self.queue_items}
+        added = 0
+        for url in links:
+            if parse_links(url) != [url]:
+                raise ValueError("请输入完整的 HTTP / HTTPS 链接。")
+            if (url, os.path.normcase(directory)) not in existing:
+                self.queue_items.append(QueueItem(url, directory, threads))
+                existing.add((url, os.path.normcase(directory)))
+                added += 1
+        self._save_queue()
+        self._render_queue()
+        self._append_log(f"已添加 {added} 条链接；不会自动开始下载。")
+        return added
+
+    def add_queue_text(self):
+        try:
+            self.add_links(parse_links(self.queue_text.get("1.0", "end-1c")))
+            self.queue_text.delete("1.0", "end")
+        except (ValueError, tk.TclError) as exc:
+            self._append_log(str(exc))
+
+    def import_queue(self, path=None):
+        if path is None:
+            path = filedialog.askopenfilename(parent=self.root, filetypes=[("TXT 链接列表", "*.txt"), ("全部文件", "*")])
+        if path:
+            try:
+                self.add_links(import_links(path))
+            except (OSError, ValueError, UnicodeError) as exc:
+                self._append_log(f"导入失败：{exc}")
+
+    def start_queue(self):
+        if self._closing or self.busy():
+            return
+        self.queue_running = True
+        self._start_next()
+
+    def _start_next(self):
+        if self._closing or not self.queue_running:
+            return
+        if self._job_pending or (self.job_thread and self.job_thread.is_alive()):
+            self.root.after(80, self._start_next)
+            return
+        item = next((item for item in self.queue_items if item.status in ("等待", "已暂停")), None)
+        if item is None:
+            self.queue_running = False
+            self.start_btn.configure(state="normal")
+            self.state_lbl.configure(text="队列已结束")
+            return
+        self.queue_current = item
+        item.status, item.error = "下载中", ""
+        if not self._start(queue_item=item):
+            item.status, item.error = "失败", "无法开始，检查目录、占用或已有同名文件。"
+            self.queue_current = None
+            self.root.after(80, self._start_next)
+        self._save_queue()
+        self._render_queue()
+
+    def pause_queue(self):
+        self._cancel()
+        if not self.job_thread or not self.job_thread.is_alive():
+            self.start_btn.configure(state="normal")
+
+    def retry_failed(self):
+        for item in self.queue_items:
+            if item.status == "失败":
+                item.status, item.error = "等待", ""
+        self._save_queue()
+        self._render_queue()
+
+    def remove_queue(self):
+        selected = set(self.queue_tree.selection())
+        self.queue_items = [item for item in self.queue_items if item.identity not in selected or item is self.queue_current]
+        self._save_queue()
+        self._render_queue()
+
+    def clear_completed(self):
+        self.queue_items = [item for item in self.queue_items if item.status != "完成"]
+        self._save_queue()
+        self._render_queue()
+
+    def use_queue_result(self):
+        selected = set(self.queue_tree.selection())
+        item = next((item for item in self.queue_items if item.identity in selected and item.status == "完成" and os.path.isfile(item.path)), None)
+        if item and self.on_complete:
+            self.on_complete(item.path)
+        elif item:
+            self._append_log(f"所选下载结果：{item.path}")
+        else:
+            self._append_log("请先选择仍存在的已完成下载结果。")
 
 
 def run_gui():

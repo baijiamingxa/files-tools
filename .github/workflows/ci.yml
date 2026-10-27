@@ -64,6 +64,9 @@ jobs:
       - name: 运行环境自检（下载校验、取消、失败恢复和引擎路由，不访问外网）
         run: python runtime_selftest.py
 
+      - name: 第二档增强自检（文本替换、校验清单、下载队列、单实例和版本比较）
+        run: python enhancements_selftest.py
+
       - name: 图形界面模块可导入
         # GitHub 的 Linux 运行器没带 tkinter，这一步只在 Windows 上做
         if: runner.os == 'Windows'

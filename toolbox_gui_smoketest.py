@@ -17,6 +17,8 @@ from unittest.mock import patch
 import c_cleaner
 import storage_tools
 import runtime_manager
+import update_gui
+from download_queue import load_queue
 import swift_extract as se
 from file_toolbox import ToolboxApp
 from toolbox_selftest import local_server
@@ -50,11 +52,11 @@ def main():
         app.report_callback_exception = report_error
         try:
             app.update()
-            assert len(app.tabs.tabs()) == 7
+            assert len(app.tabs.tabs()) == 9
             assert sorted(image.width() for image in app._icon_images) == [32, 64]
             # 所有工具共用一个 Tk 解释器，没有额外主窗口。
             assert app.encoder.tk is app.download.root.tk is app.archive_tab.tk
-            print("[通过] 七个工具嵌入同一个窗口")
+            print("[通过] 九个工具嵌入同一个窗口")
 
             # 环境界面使用模拟检测，不访问外网，也不写真实运行组件目录。
             def ready_runtime(stop, progress, **kwargs):
@@ -89,6 +91,68 @@ def main():
                 assert "全部就绪" in app.runtime.message.get()
                 app.runtime.window.destroy()
             print("[通过] 运行环境后台自检、详情、断网重试、取消和重新打开窗口")
+
+            # 文本替换：GBK 文件预览不写盘，取消确认后不生成副本，执行保留编码。
+            replace_source = root / "替换样本.txt"
+            replace_raw = ("工具箱批量替换测试，旧名称需要更新。\r\n" * 20).encode("gbk")
+            replace_source.write_bytes(replace_raw)
+            replace_panel = app.replacer
+            app.tabs.select(replace_panel)
+            replace_panel.set_inputs([replace_source])
+            replace_panel.encoding_var.set("GBK (兼容 GB2312)")
+            replace_panel.find_text.insert("1.0", "旧名称")
+            replace_panel.replace_text.insert("1.0", "新名称")
+            app.update()
+            replace_panel.scan_btn.invoke()
+            pump(app, lambda: not replace_panel.busy())
+            assert len(replace_panel.rows) == 1 and replace_panel.rows[0].count == 20
+            assert not replace_panel.rows[0].error, replace_panel.rows[0].error
+            assert replace_source.read_bytes() == replace_raw
+            with patch("tkinter.messagebox.askyesno", return_value=False):
+                replace_panel.execute_btn.invoke()
+            assert not replace_panel.rows[0].destination.exists()
+            with patch("tkinter.messagebox.askyesno", return_value=True):
+                replace_panel.execute_btn.invoke()
+                pump(app, lambda: not replace_panel.busy())
+            replace_output = replace_panel.rows[0].destination
+            assert replace_output.read_bytes() == replace_raw.decode("gbk").replace("旧名称", "新名称").encode("gbk")
+            assert replace_source.read_bytes() == replace_raw
+            replace_panel.replace_text.insert("end", "改动规则")
+            app.update()
+            assert not replace_panel.rows
+            print("[通过] 文本替换：GBK 预览、确认取消、生成副本、保留编码换行及规则失效")
+
+            checks = app.checksums
+            app.tabs.select(checks)
+            checks.set_inputs([replace_source, replace_output])
+            checks.calculate_btn.invoke()
+            pump(app, lambda: not checks.busy())
+            assert len(checks.rows) == 2 and all(len(row.digests["sha256"]) == 64 for row in checks.rows)
+            manifest = root / "校验清单.csv"
+            checks.export(manifest)
+            checks.verify(manifest)
+            pump(app, lambda: not checks.busy())
+            assert len(checks.comparisons) == 4 and all(item[2] == "一致" for item in checks.comparisons)
+            replace_output.write_bytes(b"changed after hashing")
+            checks.verify(manifest)
+            pump(app, lambda: not checks.busy())
+            assert sum(item[2] == "不一致" for item in checks.comparisons) == 2
+            print("[通过] 文件校验：双算法计算、CSV 导出导入、重新计算检测到内容变化")
+
+            with patch.object(update_gui, "check_release", return_value={"new": True, "version": "v9.0.0", "url": "https://github.com/baijiamingxa/txt-encoder/releases/tag/v9.0.0", "notes": "模拟更新说明"}):
+                app.updater.show()
+                app.updater.start()
+                pump(app, lambda: not app.updater.busy())
+                assert "v9.0.0" in app.updater.button.cget("text")
+                assert "模拟更新说明" in app.updater.notes.get("1.0", "end")
+                app.updater.automatic()
+                assert not app.updater.busy(), "当天已检查后不重复访问接口"
+            with patch.object(update_gui, "check_release", side_effect=OSError("模拟更新检查断网")):
+                app.updater.start()
+                pump(app, lambda: not app.updater.busy())
+                assert "断网" in app.updater.message.get()
+            app.updater.window.destroy()
+            print("[通过] 更新提醒：新版本、说明、当天缓存及断网可重试；未访问外网")
 
             app.download.dir_var.set(str(root))
             app.download.name_var.set("下载结果.zip")
@@ -154,6 +218,49 @@ def main():
             with zipfile.ZipFile(packed) as zf:
                 assert zf.read(zf.namelist()[0]) == raw
             print("[通过] 压缩对话框和后台压缩任务可用")
+
+            # 顺序队列复用真实本地下载服务；重名自动避让，暂停后按原路径续传。
+            queue_dir = root / "队列下载"
+            app.tabs.select(app.download_tab)
+            downloader = app.download
+            downloader.dir_var.set(str(queue_dir))
+            downloader.threads_var.set(1)
+            downloader.name_var.set("队列不使用此单任务名称.zip")
+            downloader.queue_text.insert("1.0", base + "/range?first\n" + base + "/range?second\n" + base + "/stream")
+            downloader.add_queue_text()
+            assert len(downloader.queue_items) == 3
+            assert not queue_dir.exists(), "添加队列不能触发下载或写出文件"
+            downloader.start_queue()
+            pump(app, lambda: not downloader.busy(), timeout=40)
+            assert all(item.status == "完成" for item in downloader.queue_items), [(item.status, item.error) for item in downloader.queue_items]
+            assert len({item.path for item in downloader.queue_items}) == 3
+            assert all(Path(item.path).read_bytes() == archive_bytes.getvalue() for item in downloader.queue_items)
+            downloader.queue_tree.selection_set(downloader.queue_items[0].identity)
+            downloader.use_queue_result()
+            assert app.last_download == Path(downloader.queue_items[0].path)
+            slow_list = root / "下载链接.txt"
+            slow_list.write_bytes(("# 下载队列\r\n" + base + "/slow").encode("gbk"))
+            downloader.import_queue(slow_list)
+            downloader.start_queue()
+            pump(app, lambda: downloader.job is not None and downloader.job.url.endswith("/slow") and downloader.job.done_bytes() > 0)
+            downloader.pause_queue()
+            pump(app, lambda: not downloader.busy())
+            paused = downloader.queue_items[-1]
+            assert paused.status == "已暂停", paused.status
+            downloader.start_queue()
+            pump(app, lambda: not downloader.busy(), timeout=40)
+            assert paused.status == "完成" and Path(paused.path).read_bytes() == archive_bytes.getvalue()
+            assert len(load_queue(downloader.queue_path)) == 4
+            protected = queue_dir / "已有文件.bin"
+            protected.write_bytes(b"keep original")
+            downloader.add_links([base + "/conflict", base + "/range?third"])
+            downloader.queue_items[-2].path = str(protected)
+            downloader.start_queue()
+            pump(app, lambda: not downloader.busy(), timeout=40)
+            assert downloader.queue_items[-2].status == "失败"
+            assert downloader.queue_items[-1].status == "完成"
+            assert protected.read_bytes() == b"keep original"
+            print("[通过] 批量队列：多行 / TXT 导入、顺序下载、重名避让、暂停续传、持久化及失败后继续")
 
             # C 盘清理页：注入假目录，扫描 → 勾选 → 清理 → 复扫为 0；不碰真实系统路径。
             clean_root = root / "假垃圾"
@@ -336,9 +443,9 @@ def main():
             assert app.archive.jobs[-1].path == str(split)
             print("[通过] 右键输入按类型进入对应页，保留中文、空格和特殊符号，分卷进入解压页")
 
-            app.download.name_var.set("关闭时暂停.zip")
-            app.download.url_var.set(base + "/slow")
-            app.download.start_btn.invoke()
+            app.download.clear_completed()
+            app.download.add_links([base + "/slow"])
+            app.download.start_queue()
             pump(app, lambda: app.download.job.part is not None and Path(app.download.job.part).exists())
             assert not errors, errors
             active = app.download.job
@@ -350,9 +457,12 @@ def main():
             app.update()
             assert not app.busy()
             assert active.cancel_event.is_set()
+            saved_queue = load_queue(app.download.queue_path)
+            assert saved_queue[-1].status in ("已暂停", "完成")
+            assert saved_queue[-1].path == active.save_path
             assert (root / "settings.json").exists()
             assert not errors, errors
-            print("[通过] 关闭窗口时停止任务、保存设置，无 Tk 回调异常")
+            print("[通过] 关闭窗口时暂停队列、保存断点与最终状态、保存设置，无 Tk 回调异常")
         finally:
             # 断言失败也先停止所有线程，避免后台任务占用临时目录。
             try:

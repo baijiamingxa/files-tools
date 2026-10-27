@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import os
+import queue
 import sys
 import tkinter as tk
 import traceback
@@ -18,6 +19,9 @@ from c_cleaner import CleanerPanel
 from batch_rename_gui import RenamePanel
 from storage_gui import StoragePanel
 from runtime_gui import RuntimeController
+from file_tools_gui import ReplacePanel, ChecksumPanel
+from update_gui import UpdateController
+from desktop_support import SingleInstance, focus_window
 from txt_encoder_gui import EncoderPanel
 from windows_integration import ARCHIVE_EXTENSIONS
 
@@ -30,7 +34,7 @@ class ToolboxApp(tk.Tk):
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("TxtEncoder.FileToolbox")
         super().__init__()
         self._set_app_icon()
-        self.title("文件工具箱 · 下载 / 压缩解压 / 转码 / 清理 / 重命名 / 空间分析 / 重复文件")
+        self.title("文件工具箱 · 下载 / 压缩解压 / 转码 / 清理 / 重命名 / 空间分析 / 重复文件 / 文本替换 / 文件校验")
         width = max(1100, min(1200, self.winfo_screenwidth() - 60))
         height = max(660, min(860, self.winfo_screenheight() - 100))
         x = max(0, (self.winfo_screenwidth() - width) // 2)
@@ -43,7 +47,9 @@ class ToolboxApp(tk.Tk):
         header = ttk.Frame(self, padding=(14, 10))
         header.pack(fill="x")
         ttk.Label(header, text="文件工具箱", font=("Microsoft YaHei UI", 16, "bold")).pack(side="left")
-        ttk.Label(header, text="下载、压缩解压、转码、重命名与空间整理").pack(side="left", padx=20)
+        ttk.Label(header, text="文件处理、文本编辑与空间整理").pack(side="left", padx=20)
+        settings = Path(config_path).parent if config_path is not None else None
+        self.updater = UpdateController(self, header, settings / "更新设置.json" if settings else None)
         self.file_menu_btn = ttk.Menubutton(header, text="文件右键菜单")
         self.file_menu_btn.pack(side="right")
         self.file_menu = tk.Menu(self.file_menu_btn, tearoff=False)
@@ -65,6 +71,8 @@ class ToolboxApp(tk.Tk):
         self.renamer = RenamePanel(self.tabs, status_callback=self._forward_status)
         self.space = StoragePanel(self.tabs, mode="space", status_callback=self._forward_status, duplicate_callback=self._find_duplicates_here)
         self.duplicates = StoragePanel(self.tabs, mode="duplicates", status_callback=self._forward_status)
+        self.replacer = ReplacePanel(self.tabs, status_callback=self._forward_status)
+        self.checksums = ChecksumPanel(self.tabs, status_callback=self._forward_status)
         self.tabs.add(self.download_tab, text="  直链下载  ")
         self.tabs.add(self.archive_tab, text="  压缩 / 解压  ")
         self.tabs.add(self.encoder, text="  文本转码  ")
@@ -72,6 +80,8 @@ class ToolboxApp(tk.Tk):
         self.tabs.add(self.renamer, text="  批量重命名  ")
         self.tabs.add(self.space, text="  空间分析  ")
         self.tabs.add(self.duplicates, text="  重复文件  ")
+        self.tabs.add(self.replacer, text="  文本替换  ")
+        self.tabs.add(self.checksums, text="  文件校验  ")
 
         actions = ttk.Frame(self.download_tab, padding=8)
         actions.pack(fill="x")
@@ -82,13 +92,15 @@ class ToolboxApp(tk.Tk):
             actions, text="下载结果 → 转码", state="disabled", command=self.send_download_to_encoder)
         self.encode_download_btn.pack(side="left", padx=8)
         self.download = direct_downloader.App(
-            self.download_tab, embedded=True, on_complete=self._download_completed)
+            self.download_tab, embedded=True, on_complete=self._download_completed,
+            queue_path=settings / "下载队列.json" if settings else None)
         self.archive = swift_extract.run_gui(
             parent=self.archive_tab, config_path=config_path, on_output=self.send_to_encoder)
 
         self.protocol("WM_DELETE_WINDOW", self.request_close)
         if startup_check:
             self.after(350, self.runtime.start)
+            self.after(1200, self.updater.automatic)
         else:
             self.runtime.message.set("运行环境：自动检测已停用（测试模式）。")
 
@@ -174,12 +186,11 @@ class ToolboxApp(tk.Tk):
 
     def open_inputs(self, inputs):
         """启动器和右键传入的文件按用途分派；链接只填入下载框。"""
-        archives, texts = [], []
+        archives, texts, urls = [], [], []
         for value in inputs:
             value = str(value)
             if value.lower().startswith(("https://", "http://")):
-                self.download.url_var.set(value)
-                self.tabs.select(self.download_tab)
+                urls.append(value)
                 continue
             path = Path(value)
             if not path.exists():
@@ -191,6 +202,13 @@ class ToolboxApp(tk.Tk):
                 archives.append(str(path))
             else:
                 texts.append(str(path))
+        if urls:
+            if len(urls) == 1:
+                self.download.url_var.set(urls[0])
+            else:
+                self.download.add_links(urls)
+                self.download.lower_tabs.select(self.download.queue_tab)
+            self.tabs.select(self.download_tab)
         if archives:
             self.archive.add_paths(archives)
             self.tabs.select(self.archive_tab)
@@ -199,7 +217,7 @@ class ToolboxApp(tk.Tk):
 
     def busy(self):
         return bool(
-            (self.download.job_thread and self.download.job_thread.is_alive())
+            self.download.busy()
             or self.archive.busy()
             or (self.encoder._worker and self.encoder._worker.is_alive())
             or self.cleaner.busy()
@@ -207,6 +225,9 @@ class ToolboxApp(tk.Tk):
             or self.space.busy()
             or self.duplicates.busy()
             or self.runtime.busy()
+            or self.replacer.busy()
+            or self.checksums.busy()
+            or self.updater.busy()
         )
 
     def request_close(self):
@@ -222,6 +243,9 @@ class ToolboxApp(tk.Tk):
         self.space.shutdown()
         self.duplicates.shutdown()
         self.runtime.shutdown()
+        self.replacer.shutdown()
+        self.checksums.shutdown()
+        self.updater.shutdown()
         self.withdraw()
         self._finish_close()
 
@@ -229,6 +253,7 @@ class ToolboxApp(tk.Tk):
         if self.busy():
             self.after(100, self._finish_close)
         else:
+            self.download.finish_shutdown()
             self.destroy()
 
 
@@ -236,9 +261,34 @@ def main():
     if c_cleaner.ADMIN_TASK_FLAG in sys.argv[1:]:
         # 管理员清理任务：由 UAC 提权启动的独立进程走这条路径，不打开窗口。
         return c_cleaner.run_admin_task_entry(sys.argv[1:])
-    app = ToolboxApp()
-    app.open_inputs(sys.argv[1:])
-    app.mainloop()
+    instance = SingleInstance()
+    inputs = [value if value.lower().startswith(("http://", "https://")) else str(Path(value).absolute()) for value in sys.argv[1:]]
+    try:
+        if not instance.primary:
+            instance.forward(inputs)
+            return 0
+        app = ToolboxApp()
+        app.open_inputs(inputs)
+        pending = []
+        def receive_inputs():
+            if app._closing:
+                return
+            while True:
+                try:
+                    received = instance.messages.get_nowait()
+                except queue.Empty:
+                    break
+                focus_window(app)
+                pending.extend(received)
+            # 转码正在读写时先保留新输入，避免丢失右键传来的文件。
+            if pending and not (app.encoder._worker and app.encoder._worker.is_alive()):
+                app.open_inputs(list(pending))
+                pending.clear()
+            app.after(150, receive_inputs)
+        app.after(150, receive_inputs)
+        app.mainloop()
+    finally:
+        instance.close()
     return 0
 
 

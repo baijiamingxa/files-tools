@@ -1,23 +1,27 @@
-# 文件工具箱 · 下载 / 压缩解压 / 转码 / 清理 / 重命名 / 空间分析 / 查重
+# 文件工具箱 1.1.0 · 下载 / 压缩解压 / 转码 / 清理 / 重命名 / 空间整理 / 文本替换 / 文件校验
 
 [![CI](https://github.com/baijiamingxa/txt-encoder/actions/workflows/ci.yml/badge.svg)](https://github.com/baijiamingxa/txt-encoder/actions/workflows/ci.yml)
 
-> A Windows GUI for downloads, archives, text encoding conversion, cleanup, batch renaming, folder size analysis and duplicate-file finding.
+> A Windows GUI for queued downloads, archives, encoding conversion, cleanup, renaming, storage analysis, duplicate finding, text replacement and checksums.
 > Double-click `run_gui.bat` or `启动文件工具箱.bat`. The original command-line tools remain available.
 > Core features use the Python standard library. On first launch, missing portable archive engines are downloaded and verified automatically.
 
-直链下载、压缩解压、文本转码、C 盘清理、批量重命名、空间分析和重复文件共用一个窗口，七个页签可以独立使用，
+直链下载、压缩解压、文本转码、C 盘清理、批量重命名、空间分析、重复文件、文本替换和文件校验共用一个窗口，九个页签可以独立使用，
 也可以按“下载 → 解压 → 转码”衔接处理。仓库地址和原有转码命令行接口保持兼容。
 
 | 页签 | 功能 |
 | --- | --- |
-| 直链下载 | HTTP/HTTPS 分段下载、进度和速度、暂停后续传、不支持分段时回退 |
+| 直链下载 | HTTP/HTTPS 分段下载、暂停续传、批量链接 / TXT 导入、顺序队列、失败重试、队列保存 |
 | 压缩 / 解压 | ZIP、tar、tar.gz、tar.xz 压缩与解压，gz/bz2/xz 单文件解压，批量任务与中文文件名修复 |
 | 文本转码 | 批量识别和转换 GBK、GB2312、Big5、UTF-8、UTF-16 等编码，预览、报告与原地备份 |
 | C 盘清理 | 扫描预定义的临时与缓存目录，按勾选项目清理、跳过占用文件 |
 | 批量重命名 | 旧名/新名预览，序号、替换、前后缀、扩展名与修改日期命名，冲突阻止、失败回退、撤销最近一批 |
 | 空间分析 | 按逻辑大小列出文件和文件夹、大小排序和筛选、目录下钻、打开位置、选中后确认删除 |
 | 重复文件 | 先按大小分组，再完整计算 SHA-256；建议保留最新副本，勾选删除且每组至少留一份 |
+| 文本替换 | 多行原文匹配，命中数与内容预览，保留编码 / BOM / 换行；默认副本，覆盖时先备份 |
+| 文件校验 | 批量 MD5 / SHA-256、CSV 导出、导入 CSV / MD5 / SHA256 清单重新计算比对 |
+
+重复启动会唤回已有窗口并转交文件，转码繁忙时暂存新输入；右上角支持每天一次的后台新版本提醒和手动检查。
 
 这些基础功能**只依赖 Python 标准库，无需 pip 安装**。首次启动会自检运行环境，7z、AES ZIP、
 zst、RAR 所需扩展引擎不足时，自动从官方来源下载并校验便携组件；已有可用组件会直接复用。
@@ -241,6 +245,8 @@ python toolbox_gui_smoketest.py  :: 统一窗口内的完整操作流程
 python windows_integration_selftest.py :: 右键菜单安装、更新和移除，使用隔离注册表分支
 python batch_rename_selftest.py  :: 改名、冲突、撤销和中断回退，仅使用临时文件
 python storage_selftest.py      :: 空间统计、查重、保留副本和回收前复查，仅使用临时样本
+python runtime_selftest.py      :: 运行环境检测、下载校验、取消和失败恢复，离线模拟
+python enhancements_selftest.py :: 文本替换、文件校验、下载队列、单实例和版本检查，离线模拟
 python c_cleaner_selftest.py     :: C 盘清理的扫描、清理和管理员任务管道
 ```
 
