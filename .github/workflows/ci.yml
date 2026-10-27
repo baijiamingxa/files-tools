@@ -55,6 +55,9 @@ jobs:
       - name: C 盘清理自检（扫描统计、年龄保护、占用跳过、管理员任务管道）
         run: python c_cleaner_selftest.py
 
+      - name: 批量重命名自检（冲突、撤销、竞争目标与中断回退）
+        run: python batch_rename_selftest.py
+
       - name: 图形界面模块可导入
         # GitHub 的 Linux 运行器没带 tkinter，这一步只在 Windows 上做
         if: runner.os == 'Windows'

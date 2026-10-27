@@ -1,12 +1,12 @@
-# 文件工具箱 · 下载 / 压缩解压 / 批量文本转码 / C 盘清理
+# 文件工具箱 · 下载 / 压缩解压 / 文本转码 / C 盘清理 / 批量重命名
 
 [![CI](https://github.com/baijiamingxa/txt-encoder/actions/workflows/ci.yml/badge.svg)](https://github.com/baijiamingxa/txt-encoder/actions/workflows/ci.yml)
 
-> A single Windows GUI for HTTP downloads, archive compression/extraction and batch text encoding conversion.
+> A Windows GUI for downloads, archives, text encoding conversion, drive cleanup and batch file renaming.
 > Double-click `run_gui.bat` or `启动文件工具箱.bat`. The original command-line tools remain available.
 > Core features use the Python standard library. Extra archive formats use optional engines already installed on the machine.
 
-把直链下载器、疾速解压和原来的 txt 转码工具合并在同一窗口，三个页签可以独立使用，
+直链下载、压缩解压、文本转码、C 盘清理和批量重命名共用一个窗口，五个页签可以独立使用，
 也可以按“下载 → 解压 → 转码”衔接处理。仓库地址和原有转码命令行接口保持兼容。
 
 | 页签 | 功能 |
@@ -14,11 +14,13 @@
 | 直链下载 | HTTP/HTTPS 分段下载、进度和速度、暂停后续传、不支持分段时回退 |
 | 压缩 / 解压 | ZIP、tar、tar.gz、tar.xz 压缩与解压，gz/bz2/xz 单文件解压，批量任务与中文文件名修复 |
 | 文本转码 | 批量识别和转换 GBK、GB2312、Big5、UTF-8、UTF-16 等编码，预览、报告与原地备份 |
+| C 盘清理 | 扫描预定义的临时与缓存目录，按勾选项目清理、跳过占用文件 |
+| 批量重命名 | 旧名/新名预览，序号、替换、前后缀、扩展名与修改日期命名，冲突阻止、失败回退、撤销最近一批 |
 
 这些基础功能**只依赖 Python 标准库，无需 pip 安装**。7z、AES ZIP、zst、RAR 等额外格式的
 可用情况取决于本机已有扩展库或 WinRAR/UnRAR，详见[工具箱说明](docs/工具箱说明.md)。
 
-![合并后的工具箱](docs/toolbox.png)
+![批量重命名页](docs/rename.png)
 
 ---
 
@@ -34,6 +36,8 @@
 * 转码：按下面的步骤操作。传递结果只添加输入，不会自动开始转换。
 * C 盘清理：点“① 扫描”看每类垃圾和隐私痕迹有多大，勾选后“② 清理”。
   带“管理员”的项会弹 UAC 授权；被占用的文件自动跳过。详见 `docs/工具箱说明.md`。
+* 批量重命名：添加文件或文件夹，组合规则，先点“① 扫描预览”核对旧名和新名，
+  再点“② 确认并执行”。冲突行会标红并阻止整批执行；可“撤销上次”恢复最近一批原名。
 
 在 **“文本转码”页**：
 
@@ -222,6 +226,7 @@ python gui_smoketest.py   :: 全部通过 ✔ 说明图形界面正常
 python toolbox_selftest.py       :: 下载、暂停续传、压缩解压和转码串联
 python toolbox_gui_smoketest.py  :: 统一窗口内的完整操作流程
 python windows_integration_selftest.py :: 右键菜单安装、更新和移除，使用隔离注册表分支
+python batch_rename_selftest.py  :: 改名、冲突、撤销和中断回退，仅使用临时文件
 python c_cleaner_selftest.py     :: C 盘清理的扫描、清理和管理员任务管道
 ```
 

@@ -15,6 +15,7 @@ import c_cleaner
 import direct_downloader
 import swift_extract
 from c_cleaner import CleanerPanel
+from batch_rename_gui import RenamePanel
 from txt_encoder_gui import EncoderPanel
 from windows_integration import ARCHIVE_EXTENSIONS
 
@@ -22,7 +23,7 @@ from windows_integration import ARCHIVE_EXTENSIONS
 class ToolboxApp(tk.Tk):
     def __init__(self, config_path=None):
         super().__init__()
-        self.title("文件工具箱 · 下载 / 压缩解压 / 文本转码 / C 盘清理")
+        self.title("文件工具箱 · 下载 / 压缩解压 / 文本转码 / C 盘清理 / 批量重命名")
         width = max(1100, min(1200, self.winfo_screenwidth() - 60))
         height = max(660, min(860, self.winfo_screenheight() - 100))
         x = max(0, (self.winfo_screenwidth() - width) // 2)
@@ -35,7 +36,7 @@ class ToolboxApp(tk.Tk):
         header = ttk.Frame(self, padding=(14, 10))
         header.pack(fill="x")
         ttk.Label(header, text="文件工具箱", font=("Microsoft YaHei UI", 16, "bold")).pack(side="left")
-        ttk.Label(header, text="下载 → 解压 → 转码 → 清理，也可以单独使用每个工具").pack(side="left", padx=20)
+        ttk.Label(header, text="下载、压缩解压、转码、重命名与清理").pack(side="left", padx=20)
         self.file_menu_btn = ttk.Menubutton(header, text="文件右键菜单")
         self.file_menu_btn.pack(side="right")
         self.file_menu = tk.Menu(self.file_menu_btn, tearoff=False)
@@ -53,10 +54,12 @@ class ToolboxApp(tk.Tk):
         self.archive_tab = ttk.Frame(self.tabs)
         self.encoder = EncoderPanel(self.tabs)
         self.cleaner = CleanerPanel(self.tabs, status_callback=self._forward_status)
+        self.renamer = RenamePanel(self.tabs, status_callback=self._forward_status)
         self.tabs.add(self.download_tab, text="  直链下载  ")
         self.tabs.add(self.archive_tab, text="  压缩 / 解压  ")
         self.tabs.add(self.encoder, text="  文本转码  ")
         self.tabs.add(self.cleaner.frame, text="  C 盘清理  ")
+        self.tabs.add(self.renamer, text="  批量重命名  ")
 
         actions = ttk.Frame(self.download_tab, padding=8)
         actions.pack(fill="x")
@@ -164,6 +167,7 @@ class ToolboxApp(tk.Tk):
             or self.archive.busy()
             or (self.encoder._worker and self.encoder._worker.is_alive())
             or self.cleaner.busy()
+            or self.renamer.busy()
         )
 
     def request_close(self):
@@ -175,6 +179,7 @@ class ToolboxApp(tk.Tk):
         self.archive.shutdown()
         self.encoder.shutdown()
         self.cleaner.shutdown()
+        self.renamer.shutdown()
         self.withdraw()
         self._finish_close()
 

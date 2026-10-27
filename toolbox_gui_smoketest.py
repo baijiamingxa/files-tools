@@ -46,10 +46,10 @@ def main():
         app.report_callback_exception = report_error
         try:
             app.update()
-            assert len(app.tabs.tabs()) == 4
+            assert len(app.tabs.tabs()) == 5
             # 所有工具共用一个 Tk 解释器，没有额外主窗口。
             assert app.encoder.tk is app.download.root.tk is app.archive_tab.tk
-            print("[通过] 四个工具嵌入同一个窗口")
+            print("[通过] 五个工具嵌入同一个窗口")
 
             app.download.dir_var.set(str(root))
             app.download.name_var.set("下载结果.zip")
@@ -151,6 +151,48 @@ def main():
             assert popups, "清理完成后应弹出结果明细"
             assert not errors, errors
             print("[通过] C 盘清理：扫描统计、24 小时保护、勾选清理后复扫为 0")
+
+            # 只在本次测试的临时目录里改名，覆盖预览、取消确认、执行和撤销。
+            rename_root = root / "重命名样本"
+            rename_root.mkdir()
+            (rename_root / "a.txt").write_bytes(b"first")
+            (rename_root / "b.txt").write_bytes(b"second")
+            (rename_root / "keep.bin").write_bytes(b"untouched")
+            panel = app.renamer
+            panel.record_dir = root / "rename_records"
+            app.tabs.select(panel)
+            panel.set_inputs([rename_root])
+            panel.vars["mode"].set("统一名称")
+            panel.vars["base_name"].set("文稿")
+            panel.vars["extensions"].set("txt")
+            panel.numbering_var.set(True)
+            panel.preview_btn.invoke()
+            pump(app, lambda: not panel.busy() and panel.status_var.get().startswith("预览完成"))
+            assert len(panel.rows) == 2
+            assert panel.execute_btn.instate(["!disabled"])
+            assert (rename_root / "a.txt").exists()
+            assert not (rename_root / "文稿_001.txt").exists()
+            panel._confirm = lambda *a, **k: False
+            panel.execute_btn.invoke()
+            assert (rename_root / "a.txt").exists()
+            panel._confirm = lambda *a, **k: True
+            panel.execute_btn.invoke()
+            pump(app, lambda: not panel.busy() and panel.status_var.get().startswith("重命名完成"))
+            assert (rename_root / "文稿_001.txt").read_bytes() == b"first"
+            assert (rename_root / "文稿_002.txt").read_bytes() == b"second"
+            assert (rename_root / "keep.bin").read_bytes() == b"untouched"
+            assert panel.execute_btn.instate(["disabled"])
+            panel.undo_btn.invoke()
+            pump(app, lambda: not panel.busy() and panel.status_var.get().startswith("撤销完成"))
+            assert (rename_root / "a.txt").read_bytes() == b"first"
+            assert (rename_root / "b.txt").read_bytes() == b"second"
+            panel.numbering_var.set(False)
+            panel.preview_btn.invoke()
+            pump(app, lambda: not panel.busy() and panel.status_var.get().startswith("预览完成"))
+            assert all(row.error for row in panel.rows)
+            assert panel.execute_btn.instate(["disabled"])
+            assert not errors, errors
+            print("[通过] 批量重命名：预览不写盘、取消确认、编号改名、原样撤销和冲突阻止")
 
             shell_text = root / "右键 文件 & 感叹! 百分%.TXT"
             shell_text.write_text("MZ 开头的普通 TXT，右键也应进入转码页。", encoding="utf-8")
