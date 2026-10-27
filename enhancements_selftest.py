@@ -204,7 +204,7 @@ class EnhancementTests(unittest.TestCase):
         self.assertIsNone(desktop.version_tuple("v1.2.0-beta"))
         class Reply(io.BytesIO):
             pass
-        def reply(tag="v1.2.0", url=None, prerelease=False):
+        def reply(tag="v1.3.0", url=None, prerelease=False):
             return Reply(json.dumps({"tag_name": tag, "html_url": url or desktop.RELEASES_URL + "/tag/" + tag, "body": "新版本说明", "prerelease": prerelease}).encode())
         data = desktop.check_release(opener=lambda *a, **k: reply())
         self.assertTrue(data["new"])

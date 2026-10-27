@@ -20,6 +20,8 @@ import runtime_manager
 import runtime_gui
 from dependency_check import DependencyResult
 import update_gui
+import document_conversion
+from document_selftest import docx_fixture, fake_worker
 from download_queue import load_queue
 import swift_extract as se
 from file_toolbox import ToolboxApp
@@ -54,11 +56,11 @@ def main():
         app.report_callback_exception = report_error
         try:
             app.update()
-            assert len(app.tabs.tabs()) == 9
+            assert len(app.tabs.tabs()) == 10
             assert sorted(image.width() for image in app._icon_images) == [32, 64]
             # 所有工具共用一个 Tk 解释器，没有额外主窗口。
             assert app.encoder.tk is app.download.root.tk is app.archive_tab.tk
-            print("[通过] 九个工具嵌入同一个窗口")
+            print("[通过] 十个工具嵌入同一个窗口")
 
             # 环境界面使用模拟检测，不访问外网，也不写真实运行组件目录。
             def ready_runtime(stop, progress, **kwargs):
@@ -159,6 +161,32 @@ def main():
             pump(app, lambda: not checks.busy())
             assert sum(item[2] == "不一致" for item in checks.comparisons) == 2
             print("[通过] 文件校验：双算法计算、CSV 导出导入、重新计算检测到内容变化")
+
+            # 文档页在 CI 中模拟引擎，只检查真实预览、保护与结果发布；真实引擎另测。
+            word = root / "文档 中文 &.docx"
+            pdf = root / "文档示例.pdf"
+            docx_fixture(word)
+            pdf.write_bytes(b"%PDF-fixture")
+            word_before, pdf_before = word.read_bytes(), pdf.read_bytes()
+            app.open_inputs([str(word), str(pdf)])
+            assert app.tabs.select() == str(app.documents)
+            panel = app.documents
+            panel.scan_btn.invoke()
+            pump(app, lambda: not panel.busy())
+            assert len(panel.rows) == 2 and len(panel.checked) == 2
+            with patch("tkinter.messagebox.askyesno", return_value=False):
+                panel.convert_btn.invoke()
+            assert not any(row.destination.exists() for row in panel.rows)
+            with patch("tkinter.messagebox.askyesno", return_value=True), patch("document_runtime.ensure_office", return_value=root / "fake-office.exe"), patch.object(document_conversion, "run_document_worker", side_effect=fake_worker):
+                panel.convert_btn.invoke()
+                pump(app, lambda: not panel.busy())
+            assert all(row.status == "已完成" for row in panel.rows), [(row.status, row.error) for row in panel.rows]
+            assert all(row.destination.is_file() for row in panel.rows)
+            assert word.read_bytes() == word_before and pdf.read_bytes() == pdf_before
+            panel.scan_btn.invoke()
+            pump(app, lambda: not panel.busy())
+            assert all(row.error for row in panel.rows), "已有结果不得覆盖"
+            print("[通过] Word / PDF 页：右键分派、双向预览、取消确认、后台发布、源文件和重名保护")
 
             with patch.object(update_gui, "check_release", return_value={"new": True, "version": "v9.0.0", "url": "https://github.com/baijiamingxa/txt-encoder/releases/tag/v9.0.0", "notes": "模拟更新说明"}):
                 app.updater.show()

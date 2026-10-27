@@ -17,7 +17,7 @@ ARCHIVE_EXTENSIONS = (
     ".tgz", ".tbz", ".tbz2", ".txz", ".tzst", ".cab", ".iso",
     ".arj", ".lzh", ".lha", ".jar", ".whl", ".apk", ".001", ".r00", ".z01",
 )
-EXTENSIONS = (".txt",) + ARCHIVE_EXTENSIONS
+EXTENSIONS = (".txt", ".doc", ".docx", ".pdf") + ARCHIVE_EXTENSIONS
 
 
 def registration_entries(app_dir=None, python_exe=None):

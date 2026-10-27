@@ -67,6 +67,9 @@ jobs:
       - name: 第二档增强自检（文本替换、校验清单、下载队列、单实例和版本比较）
         run: python enhancements_selftest.py
 
+      - name: 文档转换与安装器自检（输出保护、取消进程组、安装校验与失败回退）
+        run: python document_selftest.py
+
       - name: 图形界面模块可导入
         # GitHub 的 Linux 运行器没带 tkinter，这一步只在 Windows 上做
         if: runner.os == 'Windows'

@@ -38,6 +38,9 @@ PACKAGES = (
     ("pyzipper", "AES ZIP 加密压缩与解压", "可由便携 7-Zip 引擎提供对应功能。"),
     ("zstandard", "Zstd / tar.zst 压缩与解压", "可由便携 Zstd 和 7-Zip 引擎提供对应功能。"),
     ("windnd", "Windows 窗口拖放文件", "未安装时仍可使用“添加压缩包 / 选择文件”按钮。"),
+    ("pdf2docx", "PDF 转可编辑 Word", "安装包自带；源码模式按 requirements-documents.txt 安装。"),
+    ("pymupdf", "PDF 读取、页面与转换结果验证", "安装包自带；源码模式按 requirements-documents.txt 安装。"),
+    ("docx", "Word 文件读写与扫描件页面保留", "安装包自带；对应 PyPI 包为 python-docx。"),
 )
 
 
@@ -65,6 +68,20 @@ def _probe(name, module):
             raise ValueError("Zstd 压缩 / 解压内容不一致。")
     elif name == "windnd" and not callable(getattr(module, "hook_dropfiles", None)):
         raise ValueError("windnd 缺少 hook_dropfiles 接口。")
+    elif name == "pdf2docx" and not callable(getattr(module, "Converter", None)):
+        raise ValueError("缺少 PDF → DOCX 转换接口。")
+    elif name == "pymupdf":
+        with module.open() as pdf:
+            page = pdf.new_page()
+            page.insert_text((50, 50), "FileToolbox test")
+            if "FileToolbox test" not in page.get_text() or not page.get_pixmap().samples:
+                raise ValueError("PDF 页面读取或渲染验证失败。")
+    elif name == "docx":
+        document = module.Document()
+        document.add_paragraph(sample.decode("utf-8"))
+        document.save(buffer)
+        if module.Document(io.BytesIO(buffer.getvalue())).paragraphs[-1].text != sample.decode("utf-8"):
+            raise ValueError("DOCX 内容往返验证失败。")
 
 
 def inspect_dependencies(stop=None, progress=None, importer=None):
@@ -92,7 +109,7 @@ def inspect_dependencies(stop=None, progress=None, importer=None):
         version = getattr(module, "__version__", None)
         if version is None:
             try:
-                version = metadata.version(name)
+                version = metadata.version("python-docx" if name == "docx" else "PyMuPDF" if name == "pymupdf" else name)
             except Exception:
                 version = "未提供版本号"
         version = str(version)
@@ -100,12 +117,21 @@ def inspect_dependencies(stop=None, progress=None, importer=None):
         try:
             _probe(name, module)
             detail = "已成功导入并通过样本运行检查。" if name != "windnd" else "已成功导入，拖放接口可调用；未注册额外窗口钩子。"
+            if name == "pdf2docx":
+                detail = "转换接口可调用；实际 PDF 转换在独立工作进程中完成。"
             if getattr(sys, "frozen", False):
                 detail += " 此包由 EXE 自带，无需另行 pip 安装。"
             rows.append(DependencyResult(name, purpose, "可用", version, location, detail))
         except Exception as exc:
             rows.append(DependencyResult(name, purpose, "自检失败", version, location,
                 f"包可以导入，但样本运行失败：{exc}\n{fallback}"))
+    from document_runtime import find_office, probe_office
+    office = find_office()
+    if office:
+        ok = probe_office(office, stop)
+        rows.append(DependencyResult("LibreOffice", "Word 转 PDF", "可用" if ok else "加载失败", location=str(office), detail="使用独立配置，不占用已打开的 Office 窗口。" if ok else "已找到文件，但控制台运行验证失败。"))
+    else:
+        rows.append(DependencyResult("LibreOffice", "Word 转 PDF", "未安装（可选）", detail="首次 Word 转 PDF 时会自动下载并配置官方组件，也可在文档页先配置。"))
     return rows
 
 

@@ -20,6 +20,8 @@ from batch_rename_gui import RenamePanel
 from storage_gui import StoragePanel
 from runtime_gui import RuntimeController
 from file_tools_gui import ReplacePanel, ChecksumPanel
+from document_gui import DocumentPanel
+import document_conversion
 from update_gui import UpdateController
 from desktop_support import SingleInstance, focus_window
 from txt_encoder_gui import EncoderPanel
@@ -34,7 +36,7 @@ class ToolboxApp(tk.Tk):
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("TxtEncoder.FileToolbox")
         super().__init__()
         self._set_app_icon()
-        self.title("文件工具箱 · 下载 / 压缩解压 / 转码 / 清理 / 重命名 / 空间分析 / 重复文件 / 文本替换 / 文件校验")
+        self.title("文件工具箱 · 下载 / 压缩解压 / 转码 / 清理 / 重命名 / 空间分析 / 重复文件 / 文本替换 / 文件校验 / Word-PDF")
         width = max(1100, min(1200, self.winfo_screenwidth() - 60))
         height = max(660, min(860, self.winfo_screenheight() - 100))
         x = max(0, (self.winfo_screenwidth() - width) // 2)
@@ -75,6 +77,7 @@ class ToolboxApp(tk.Tk):
         self.duplicates = StoragePanel(self.tabs, mode="duplicates", status_callback=self._forward_status)
         self.replacer = ReplacePanel(self.tabs, status_callback=self._forward_status)
         self.checksums = ChecksumPanel(self.tabs, status_callback=self._forward_status)
+        self.documents = DocumentPanel(self.tabs, status_callback=self._forward_status)
         self.tabs.add(self.download_tab, text="  直链下载  ")
         self.tabs.add(self.archive_tab, text="  压缩 / 解压  ")
         self.tabs.add(self.encoder, text="  文本转码  ")
@@ -84,6 +87,7 @@ class ToolboxApp(tk.Tk):
         self.tabs.add(self.duplicates, text="  重复文件  ")
         self.tabs.add(self.replacer, text="  文本替换  ")
         self.tabs.add(self.checksums, text="  文件校验  ")
+        self.tabs.add(self.documents, text=" Word / PDF ")
 
         actions = ttk.Frame(self.download_tab, padding=8)
         actions.pack(fill="x")
@@ -188,7 +192,7 @@ class ToolboxApp(tk.Tk):
 
     def open_inputs(self, inputs):
         """启动器和右键传入的文件按用途分派；链接只填入下载框。"""
-        archives, texts, urls = [], [], []
+        archives, texts, urls, documents = [], [], [], []
         for value in inputs:
             value = str(value)
             if value.lower().startswith(("https://", "http://")):
@@ -197,7 +201,9 @@ class ToolboxApp(tk.Tk):
             path = Path(value)
             if not path.exists():
                 continue
-            if path.is_file() and path.suffix.lower() != ".txt" and (
+            if path.is_file() and path.suffix.lower() in document_conversion.DOCUMENT_EXTENSIONS:
+                documents.append(str(path))
+            elif path.is_file() and path.suffix.lower() != ".txt" and (
                 path.suffix.lower() in ARCHIVE_EXTENSIONS
                 or swift_extract.detect_format(str(path)) != "unknown"
             ):
@@ -216,6 +222,12 @@ class ToolboxApp(tk.Tk):
             self.tabs.select(self.archive_tab)
         if texts:
             self.send_to_encoder(texts)
+        if documents:
+            if self.documents.busy():
+                messagebox.showinfo("文档转换正在进行", "请等当前转换结束后再添加文件。", parent=self)
+            else:
+                self.documents.set_inputs([*self.documents.inputs, *documents])
+                self.tabs.select(self.documents)
 
     def busy(self):
         return bool(
@@ -230,6 +242,7 @@ class ToolboxApp(tk.Tk):
             or self.replacer.busy()
             or self.checksums.busy()
             or self.updater.busy()
+            or self.documents.busy()
         )
 
     def request_close(self):
@@ -248,6 +261,7 @@ class ToolboxApp(tk.Tk):
         self.replacer.shutdown()
         self.checksums.shutdown()
         self.updater.shutdown()
+        self.documents.shutdown()
         self.withdraw()
         self._finish_close()
 
@@ -260,6 +274,15 @@ class ToolboxApp(tk.Tk):
 
 
 def main():
+    if document_conversion.WORKER_FLAG in sys.argv[1:]:
+        from document_worker import run_worker
+        index = sys.argv.index(document_conversion.WORKER_FLAG)
+        return run_worker(sys.argv[index + 1])
+    if "--uninstall-file-menu" in sys.argv[1:]:
+        import windows_integration as integration
+        if integration.is_installed():
+            integration.uninstall()
+        return 0
     if c_cleaner.ADMIN_TASK_FLAG in sys.argv[1:]:
         # 管理员清理任务：由 UAC 提权启动的独立进程走这条路径，不打开窗口。
         return c_cleaner.run_admin_task_entry(sys.argv[1:])
@@ -283,7 +306,7 @@ def main():
                 focus_window(app)
                 pending.extend(received)
             # 转码正在读写时先保留新输入，避免丢失右键传来的文件。
-            if pending and not (app.encoder._worker and app.encoder._worker.is_alive()):
+            if pending and not (app.encoder._worker and app.encoder._worker.is_alive()) and not app.documents.busy():
                 app.open_inputs(list(pending))
                 pending.clear()
             app.after(150, receive_inputs)

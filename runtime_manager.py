@@ -100,7 +100,7 @@ def run_process(command, stop=None, timeout=60, cwd=None, max_output=64 * 1024 *
             process.wait()
 
 
-def download_verified(urls, path, expected, stop=None, progress=None, opener=None):
+def download_verified(urls, path, expected, stop=None, progress=None, opener=None, *, max_bytes=32 * 1024 * 1024, max_seconds=120):
     """HTTPS 流式下载，限制体积/耗时，完整校验成功后才保留文件。"""
     request_open = opener or urllib.request.urlopen  # 自动采用系统/环境代理。
     errors = []
@@ -123,7 +123,7 @@ def download_verified(urls, path, expected, stop=None, progress=None, opener=Non
                     if not block:
                         break
                     done += len(block)
-                    if done > 32 * 1024 * 1024 or time.monotonic() - started > 120:
+                    if done > max_bytes or time.monotonic() - started > max_seconds:
                         raise RuntimeErrorBase("组件下载超出体积或时间限制。")
                     target.write(block)
                     digest.update(block)

@@ -1,0 +1,7 @@
+# Document conversion and reproducible Windows installer build (Python 3.14 x64).
+pdf2docx==0.5.13
+PyMuPDF==1.26.7
+python-docx==1.2.0
+numpy==2.5.4
+opencv-python-headless==5.0.0.93
+fonttools==4.67.0

@@ -1,0 +1,6 @@
+-r requirements-documents.txt
+PyInstaller==6.22.3
+py7zr==1.1.4
+pyzipper==0.4.0
+zstandard==0.25.0
+windnd==1.0.7

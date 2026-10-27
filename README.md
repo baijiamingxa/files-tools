@@ -1,4 +1,4 @@
-# 文件工具箱 1.1.0 · 下载 / 压缩解压 / 转码 / 清理 / 重命名 / 空间整理 / 文本替换 / 文件校验
+# 文件工具箱 1.2.0 · 下载 / 压缩解压 / 转码 / 清理 / 重命名 / 空间整理 / 文本替换 / 文件校验 / Word-PDF
 
 [![CI](https://github.com/baijiamingxa/txt-encoder/actions/workflows/ci.yml/badge.svg)](https://github.com/baijiamingxa/txt-encoder/actions/workflows/ci.yml)
 
@@ -6,7 +6,7 @@
 > Double-click `run_gui.bat` or `启动文件工具箱.bat`. The original command-line tools remain available.
 > Core features use the Python standard library. On first launch, missing portable archive engines are downloaded and verified automatically.
 
-直链下载、压缩解压、文本转码、C 盘清理、批量重命名、空间分析、重复文件、文本替换和文件校验共用一个窗口，九个页签可以独立使用，
+直链下载、压缩解压、文本转码、C 盘清理、批量重命名、空间分析、重复文件、文本替换、文件校验和 Word / PDF 共用一个窗口，十个页签可以独立使用，
 也可以按“下载 → 解压 → 转码”衔接处理。仓库地址和原有转码命令行接口保持兼容。
 
 | 页签 | 功能 |
@@ -20,10 +20,14 @@
 | 重复文件 | 先按大小分组，再完整计算 SHA-256；建议保留最新副本，勾选删除且每组至少留一份 |
 | 文本替换 | 多行原文匹配，命中数与内容预览，保留编码 / BOM / 换行；默认副本，覆盖时先备份 |
 | 文件校验 | 批量 MD5 / SHA-256、CSV 导出、导入 CSV / MD5 / SHA256 清单重新计算比对 |
+| Word / PDF | DOC / DOCX 转 PDF、普通 PDF 转可编辑 DOCX、扫描件保留页面图片；批量预览、独立进程和重名保护 |
+
+**新增文档功能随安装包提供依赖。** 请优先使用 `dist\文件工具箱安装包.exe`；
+Word 转 PDF 复用已有 LibreOffice，缺少时自动配置。转换效果、依赖和构建说明见[文档转换与安装包](docs/文档转换与安装包.md)。
 
 重复启动会唤回已有窗口并转交文件，转码繁忙时暂存新输入；右上角支持每天一次的后台新版本提醒和手动检查。
 
-这些基础功能**只依赖 Python 标准库，无需 pip 安装**。首次启动会自检运行环境，7z、AES ZIP、
+文档转换之外的基础功能**只依赖 Python 标准库，无需 pip 安装**。首次启动会自检运行环境，7z、AES ZIP、
 zst、RAR 所需扩展引擎不足时，自动从官方来源下载并校验便携组件；已有可用组件会直接复用。
 右上角“运行环境…”可查看进度、取消和重试，详见[工具箱说明](docs/工具箱说明.md#首次启动运行环境自检)。
 
@@ -69,18 +73,20 @@ zst、RAR 所需扩展引擎不足时，自动从官方来源下载并校验便�
 
 如果只需要原来的独立转码窗口，运行 `py txt_encoder_gui.py`。
 
-### 免装 Python：打包成 exe
+### 免装 Python：使用安装包
 
-不想装 Python，可以打包一个单文件 exe：
+运行 `dist\文件工具箱安装包.exe` 安装即可，无需系统 Python。自行构建时使用独立环境：
 
 ```bat
-py -m pip install pyinstaller    :: 只需装一次
-py build_exe.py
+py -m venv .venv-document-build
+.venv-document-build\Scripts\python.exe -m pip install -r requirements-build.txt
+.venv-document-build\Scripts\python.exe build_exe.py
 ```
 
-得到 **`dist\文件工具箱.exe`**，拷到任何 Windows 电脑双击就能用，下载、解压、转码功能齐全，
+得到 **`dist\文件工具箱安装包.exe`**，可在 64 位 Windows 安装使用。
+开发目录里的 `dist\文件工具箱.exe` 也可直接运行，但须连同 `_internal` 运行库目录一起保留；
 设置保存在 exe 旁边（所在目录不可写时自动改存到 `%APPDATA%\文件工具箱`），
-在窗口里安装右键菜单也会指向这个 exe。
+在窗口里安装右键菜单会指向当前运行的 exe。
 首次运行可能弹出 SmartScreen 提示，点“更多信息 → 仍要运行”即可。
 
 EXE、窗口和任务栏使用专属的蓝色工具箱图标。透明 PNG 和多尺寸 ICO 位于 `assets/`，
@@ -236,7 +242,7 @@ print(result.summary())
 
 ## 六、环境要求与自检
 
-* Python 3.9 以上（开发环境是 3.14），**无需 pip 安装任何东西**。
+* 基础工具需 Python 3.9 以上（开发环境是 3.14）；Word / PDF 的源码依赖及独立构建环境见[文档说明](docs/文档转换与安装包.md)。安装包已包含 PDF 转换库。
 * 每次推送都会在 GitHub Actions 上自动跑一遍：Ubuntu + Windows 两个平台，Python 3.9 / 3.12 / 3.13
   三个版本，检查原有转码功能、工具箱下载与压缩集成流程、命令行转换并上传报告；Windows 还运行两套真实 GUI 测试。
 * 想确认环境没问题，在项目目录运行：
@@ -251,6 +257,7 @@ python batch_rename_selftest.py  :: 改名、冲突、撤销和中断回退，�
 python storage_selftest.py      :: 空间统计、查重、保留副本和回收前复查，仅使用临时样本
 python runtime_selftest.py      :: 运行环境检测、下载校验、取消和失败恢复，离线模拟
 python enhancements_selftest.py :: 文本替换、文件校验、下载队列、单实例和版本检查，离线模拟
+python document_selftest.py     :: Word/PDF 输出保护、进程取消、安装校验和回退，离线模拟
 python c_cleaner_selftest.py     :: C 盘清理的扫描、清理和管理员任务管道
 ```
 
