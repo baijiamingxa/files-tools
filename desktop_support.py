@@ -14,7 +14,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.3.0"
 REPO = "baijiamingxa/txt-encoder"
 RELEASES_URL = f"https://github.com/{REPO}/releases"
 

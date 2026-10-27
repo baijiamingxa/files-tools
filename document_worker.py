@@ -88,6 +88,64 @@ def convert_word(job, report):
     return f"已转换为 {pages} 页 PDF（LibreOffice）；源文档保留。"
 
 
+def open_pdf(path, password=""):
+    import pymupdf
+    pdf = pymupdf.open(path)
+    try:
+        if not pdf.is_pdf:
+            raise ValueError("文件内容不是 PDF。")
+        if pdf.needs_pass and not pdf.authenticate(password):
+            raise ValueError("PDF 已加密，密码为空或不正确。")
+        if not pdf.page_count:
+            raise ValueError("PDF 没有可用页面。")
+        return pdf
+    except Exception:
+        pdf.close()
+        raise
+
+
+def edit_pdf(job, report):
+    import pymupdf
+    from contextlib import ExitStack
+    with ExitStack() as stack:
+        sources = [stack.enter_context(open_pdf(path, job.get("password", ""))) for path in job["sources"]]
+        operation, outputs = job["operation"], job["outputs"]
+        expected = []
+        if operation == "merge":
+            with pymupdf.open() as target:
+                for index, source in enumerate(sources, 1):
+                    report(f"合并文件 {index} / {len(sources)}")
+                    target.insert_pdf(source)
+                expected.append(target.page_count)
+                target.save(outputs[0], garbage=3, deflate=True)
+        elif operation == "split":
+            for index, (selection, path) in enumerate(zip(job["selections"], outputs), 1):
+                report(f"生成分卷 {index} / {len(outputs)}")
+                with pymupdf.open() as target:
+                    target.insert_pdf(sources[0], from_page=selection[0], to_page=selection[-1])
+                    expected.append(target.page_count)
+                    target.save(path, garbage=3, deflate=True)
+        elif operation in ("extract", "rotate"):
+            source = sources[0]
+            if operation == "extract":
+                source.select(job["selections"][0])
+            else:
+                for number in job["selections"][0]:
+                    page = source[number]
+                    page.set_rotation((page.rotation + job["rotation"]) % 360)
+            expected.append(source.page_count)
+            source.save(outputs[0], garbage=3, deflate=True, encryption=pymupdf.PDF_ENCRYPT_NONE)
+        else:
+            raise ValueError("未知 PDF 操作。")
+    if len(outputs) != len(expected):
+        raise ValueError("输出文件数量与计划不一致。")
+    for path, count in zip(outputs, expected):
+        with open_pdf(path) as pdf:
+            if pdf.page_count != count:
+                raise ValueError("生成 PDF 页数校验失败。")
+    return f"已生成 {len(outputs)} 个 PDF，共 {sum(expected)} 页；源文件保留。"
+
+
 def run_worker(path):
     job_path = Path(path)
     job = json.loads(job_path.read_text(encoding="utf-8"))
@@ -99,7 +157,13 @@ def run_worker(path):
     report = lambda message: _write(job["progress"], {"message": message})
     try:
         with open(job_path.parent / "engine.log", "w", encoding="utf-8") as log, contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
-            if job["mode"] == "pdf_word":
+            if job["mode"] == "pdf_info":
+                with open_pdf(job["source"], job.get("password", "")) as pdf:
+                    _write(job["result"], {"ok": True, "pages": pdf.page_count})
+                return 0
+            if job["mode"] == "pdf_edit":
+                detail = edit_pdf(job, report)
+            elif job["mode"] == "pdf_word":
                 detail = convert_pdf(job, report)
             elif job["mode"] == "word_pdf":
                 detail = convert_word(job, report)

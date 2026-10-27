@@ -230,7 +230,14 @@ class RenamePanel(ttk.Frame):
         def progress(done, total):
             if done == total or done % max(1, total // 100) == 0:
                 self._queue.put(("progress", (done, total)))
-        self._launch(action, lambda: execute_plan(rows, self.record_dir, self._stop, progress))
+        from task_history import tracked, item
+        def describe(result):
+            if result is None:
+                return []
+            return [item(row.src, row.dst, "已完成" if row.changed else "保持原样", "重命名日志：" + str(result.record_path or "")) for row in result.rows]
+        work = tracked(getattr(self, "history", None), "撤销重命名" if action == "undo" else "批量重命名",
+                       lambda: execute_plan(rows, self.record_dir, self._stop, progress), [row.src for row in rows], describe, self._stop.is_set)
+        self._launch(action, work)
 
     def _show_rows(self, rows, completed=False):
         self.tree.delete(*self.tree.get_children())

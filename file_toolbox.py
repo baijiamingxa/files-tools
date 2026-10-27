@@ -21,6 +21,9 @@ from storage_gui import StoragePanel
 from runtime_gui import RuntimeController
 from file_tools_gui import ReplacePanel, ChecksumPanel
 from document_gui import DocumentPanel
+from pdf_gui import PdfPanel
+from task_history import HistoryRecorder
+from task_history_gui import HistoryWindow
 import document_conversion
 from update_gui import UpdateController
 from desktop_support import SingleInstance, focus_window
@@ -51,6 +54,11 @@ class ToolboxApp(tk.Tk):
         ttk.Label(header, text="文件工具箱", font=("Microsoft YaHei UI", 16, "bold")).pack(side="left")
         ttk.Label(header, text="文件处理、文本编辑与空间整理").pack(side="left", padx=20)
         settings = Path(config_path).parent if config_path is not None else None
+        from desktop_support import user_directory
+        self.history = HistoryRecorder((settings or user_directory()) / "任务记录.sqlite3")
+        self._history_window = None
+        self.history_btn = ttk.Button(header, text="任务记录", command=self.open_history)
+        self.history_btn.pack(side="right", padx=6)
         self.updater = UpdateController(self, header, settings / "更新设置.json" if settings else None)
         self.file_menu_btn = ttk.Menubutton(header, text="文件右键菜单")
         self.file_menu_btn.pack(side="right")
@@ -77,7 +85,15 @@ class ToolboxApp(tk.Tk):
         self.duplicates = StoragePanel(self.tabs, mode="duplicates", status_callback=self._forward_status)
         self.replacer = ReplacePanel(self.tabs, status_callback=self._forward_status)
         self.checksums = ChecksumPanel(self.tabs, status_callback=self._forward_status)
-        self.documents = DocumentPanel(self.tabs, status_callback=self._forward_status)
+        self.document_tab = ttk.Frame(self.tabs)
+        self.document_tabs = ttk.Notebook(self.document_tab)
+        self.document_tabs.pack(fill="both", expand=True)
+        self.documents = DocumentPanel(self.document_tabs, status_callback=self._forward_status)
+        self.pdf_tools = PdfPanel(self.document_tabs, status_callback=self._forward_status)
+        self.document_tabs.add(self.documents, text=" Word / PDF 转换 ")
+        self.document_tabs.add(self.pdf_tools, text=" PDF 合并 / 拆分 / 提取 / 旋转 ")
+        for panel in (self.encoder, self.cleaner, self.renamer, self.space, self.duplicates, self.replacer, self.checksums, self.documents, self.pdf_tools):
+            panel.history = self.history
         self.tabs.add(self.download_tab, text="  直链下载  ")
         self.tabs.add(self.archive_tab, text="  压缩 / 解压  ")
         self.tabs.add(self.encoder, text="  文本转码  ")
@@ -87,7 +103,7 @@ class ToolboxApp(tk.Tk):
         self.tabs.add(self.duplicates, text="  重复文件  ")
         self.tabs.add(self.replacer, text="  文本替换  ")
         self.tabs.add(self.checksums, text="  文件校验  ")
-        self.tabs.add(self.documents, text=" Word / PDF ")
+        self.tabs.add(self.document_tab, text=" 文档 / PDF ")
 
         actions = ttk.Frame(self.download_tab, padding=8)
         actions.pack(fill="x")
@@ -99,9 +115,9 @@ class ToolboxApp(tk.Tk):
         self.encode_download_btn.pack(side="left", padx=8)
         self.download = direct_downloader.App(
             self.download_tab, embedded=True, on_complete=self._download_completed,
-            queue_path=settings / "下载队列.json" if settings else None)
+            queue_path=settings / "下载队列.json" if settings else None, history=self.history)
         self.archive = swift_extract.run_gui(
-            parent=self.archive_tab, config_path=config_path, on_output=self.send_to_encoder)
+            parent=self.archive_tab, config_path=config_path, on_output=self.send_to_encoder, history=self.history)
 
         self.protocol("WM_DELETE_WINDOW", self.request_close)
         if startup_check:
@@ -124,6 +140,14 @@ class ToolboxApp(tk.Tk):
 
     def _forward_status(self, text):
         self.status_var.set(text)
+
+    def open_history(self):
+        if self._history_window is not None and self._history_window.winfo_exists():
+            self._history_window.refresh()
+            self._history_window.deiconify()
+            self._history_window.lift()
+        else:
+            self._history_window = HistoryWindow(self, self.history)
 
     def _find_duplicates_here(self, path):
         if self.duplicates.busy() or self.duplicates._active:
@@ -227,7 +251,8 @@ class ToolboxApp(tk.Tk):
                 messagebox.showinfo("文档转换正在进行", "请等当前转换结束后再添加文件。", parent=self)
             else:
                 self.documents.set_inputs([*self.documents.inputs, *documents])
-                self.tabs.select(self.documents)
+                self.tabs.select(self.document_tab)
+                self.document_tabs.select(self.documents)
 
     def busy(self):
         return bool(
@@ -243,6 +268,7 @@ class ToolboxApp(tk.Tk):
             or self.checksums.busy()
             or self.updater.busy()
             or self.documents.busy()
+            or self.pdf_tools.busy()
         )
 
     def request_close(self):
@@ -262,6 +288,7 @@ class ToolboxApp(tk.Tk):
         self.checksums.shutdown()
         self.updater.shutdown()
         self.documents.shutdown()
+        self.pdf_tools.shutdown()
         self.withdraw()
         self._finish_close()
 

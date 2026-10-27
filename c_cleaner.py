@@ -844,9 +844,12 @@ class CleanerPanel:
             self.progress.stop()
             self.progress.pack_forget()
 
-    def _start_job(self, job) -> None:
+    def _start_job(self, job, name="", inputs=(), describe=None) -> None:
         if self._thread and self._thread.is_alive():
             return
+        if name:
+            from task_history import tracked
+            job = tracked(getattr(self, "history", None), name, job, inputs, describe, lambda: self._closing)
         self._thread = threading.Thread(target=self._work_main, args=(job,), daemon=True)
         self._thread.start()
         self.frame.after(self.POLL_MS, self._poll)
@@ -894,14 +897,17 @@ class CleanerPanel:
             total = 0
             for item in self._defs:
                 if self._closing:
-                    return
+                    return dict(self._scans)
                 self._set_status(f"正在扫描：{item.name}")
                 scan = self.engine.scan(item.id)
                 self._scans[item.id] = scan
                 total += scan.bytes
             self._final_status = f"扫描完成：全部项目合计约 {fmt_size(total)}，勾选后点“② 清理所勾选项”。"
+            return dict(self._scans)
 
-        self._start_job(job)
+        from task_history import item
+        self._start_job(job, "C 盘清理 · 扫描", [d.name for d in self._defs],
+                        lambda result: [item(self.engine.name(key), state="已完成", detail=f"字节数 {scan.bytes}，文件 {scan.files}；{scan.note}") for key, scan in (result or {}).items()])
 
     # ---- 清理 ----
 
@@ -944,10 +950,13 @@ class CleanerPanel:
                 self._set_status("重新扫描最新大小…")
                 for item in self._defs:
                     if self._closing:
-                        return
+                        return results
                     self._scans[item.id] = self.engine.scan(item.id)
+            return results
 
-        self._start_job(job)
+        from task_history import item
+        self._start_job(job, "C 盘清理 · 执行", [d.name for d in checked],
+                        lambda result: [item(self.engine.name(key), state="已完成" if value.ok else "失败", detail=f"释放 {value.bytes_freed} 字节，跳过 {value.skipped} 项；{value.error or value.note}") for key, value in (result or {}).items()])
 
     def _clean_all(self, checked) -> dict[str, ItemResult]:
         results: dict[str, ItemResult] = {}

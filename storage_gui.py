@@ -194,6 +194,20 @@ class StoragePanel(ttk.Frame):
         if self._active:
             return
         self._stop.clear()
+        from task_history import tracked, item
+        root = self.root_var.get()
+        def describe(result):
+            if result is None:
+                return []
+            if kind == "delete":
+                return ([item(path, state="已完成", detail="系统文件操作已移走；是否可恢复以回收站实际内容为准。") for path in result.removed]
+                        + [item(path, state="未处理", detail=result.message) for path in result.remaining])
+            scan, duplicates = result
+            errors = list(scan.errors) + (list(duplicates.errors) if duplicates else [])
+            note = f"文件 {len(scan.files)} 个，逻辑字节数 {scan.total_size}" + (f"，重复组 {len(duplicates.groups)} 个" if duplicates else "")
+            return [item(root, state="已完成", detail=note)] + [item(path, state="失败", detail=error) for path, error in errors]
+        name = ("重复文件" if self.mode == "duplicates" else "空间分析") + (" · 移除所选项" if kind == "delete" else " · 扫描")
+        work = tracked(getattr(self, "history", None), name, work, [root], describe, self._stop.is_set)
         self._set_busy(True)
         self.progress.configure(value=0)
         self.status_var.set("正在扫描…" if kind == "scan" else "正在复查所选文件；系统操作开始后可在系统窗口中取消。")

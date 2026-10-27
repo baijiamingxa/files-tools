@@ -21,6 +21,8 @@ import runtime_gui
 from dependency_check import DependencyResult
 import update_gui
 import document_conversion
+import pdf_tools
+from pdf_history_selftest import fake_worker as fake_pdf_worker
 from document_selftest import docx_fixture, fake_worker
 from download_queue import load_queue
 import swift_extract as se
@@ -169,7 +171,8 @@ def main():
             pdf.write_bytes(b"%PDF-fixture")
             word_before, pdf_before = word.read_bytes(), pdf.read_bytes()
             app.open_inputs([str(word), str(pdf)])
-            assert app.tabs.select() == str(app.documents)
+            assert app.tabs.select() == str(app.document_tab)
+            assert app.document_tabs.select() == str(app.documents)
             panel = app.documents
             panel.scan_btn.invoke()
             pump(app, lambda: not panel.busy())
@@ -187,6 +190,48 @@ def main():
             pump(app, lambda: not panel.busy())
             assert all(row.error for row in panel.rows), "已有结果不得覆盖"
             print("[通过] Word / PDF 页：右键分派、双向预览、取消确认、后台发布、源文件和重名保护")
+
+            pdf_panel = app.pdf_tools
+            app.document_tabs.select(pdf_panel)
+            previous_geometry = app.geometry()
+            app.geometry("1100x660")
+            app.update()
+            assert pdf_panel.tree.winfo_height() >= 55, "最小窗口也应能看到预览行"
+            second_pdf = root / "第二份.pdf"
+            second_pdf.write_bytes(b"%PDF-second")
+            pdf_panel.set_inputs([pdf, second_pdf])
+            pdf_panel.order_list.selection_set(1)
+            pdf_panel.move_input(-1)
+            assert pdf_panel.inputs == [str(second_pdf), str(pdf)]
+            pdf_panel.split_var.set("尚未填写")
+            assert pdf_panel._pdf_options().mode == "merge", "隐藏的其它操作选项不应阻止当前模式"
+            pdf_panel.split_var.set("1")
+            with patch.object(pdf_tools, "run_document_worker", side_effect=fake_pdf_worker):
+                pdf_panel.scan()
+                pump(app, lambda: not pdf_panel.busy())
+                assert [source.path for source in pdf_panel.rows[0].sources] == [second_pdf, pdf]
+                with patch("tkinter.messagebox.askyesno", return_value=False):
+                    pdf_panel.execute()
+                assert not pdf_panel.rows[0].destinations[0].exists()
+                with patch("tkinter.messagebox.askyesno", return_value=True):
+                    pdf_panel.execute()
+                    pump(app, lambda: not pdf_panel.busy())
+                assert pdf_panel.rows[0].outputs[0].exists()
+                pdf_panel.mode_var.set("拆分 PDF（每份指定页数）")
+                pdf_panel.set_inputs([pdf])
+                pdf_panel.split_var.set("2")
+                pdf_panel.scan()
+                pump(app, lambda: not pdf_panel.busy())
+                assert len(pdf_panel.rows[0].destinations) == 3
+                with patch("tkinter.messagebox.askyesno", return_value=True):
+                    pdf_panel.execute()
+                    pump(app, lambda: not pdf_panel.busy())
+                assert len(pdf_panel.rows[0].outputs) == 3
+                pdf_panel.pages_var.set("1")
+                assert not pdf_panel.rows, "设置变化必须清空预览"
+            assert pdf.read_bytes() == pdf_before
+            app.geometry(previous_geometry)
+            print("[通过] PDF 操作页：文件排序、合并预览、取消确认、拆分发布及设置失效")
 
             with patch.object(update_gui, "check_release", return_value={"new": True, "version": "v9.0.0", "url": "https://github.com/baijiamingxa/txt-encoder/releases/tag/v9.0.0", "notes": "模拟更新说明"}):
                 app.updater.show()
@@ -491,6 +536,40 @@ def main():
             assert app.tabs.select() == str(app.archive_tab)
             assert app.archive.jobs[-1].path == str(split)
             print("[通过] 右键输入按类型进入对应页，保留中文、空格和特殊符号，分卷进入解压页")
+
+            records = app.history.store.query(limit=2000)
+            kinds = {record["kind"] for record in records}
+            expected = {"直链下载", "解压文件", "压缩文件", "TXT 批量转码", "批量重命名", "撤销重命名", "C 盘清理 · 执行", "重复文件 · 扫描", "空间分析 · 扫描", "批量文本替换", "文件校验 · 计算", "文件校验 · 清单比对", "Word / PDF 转换"}
+            assert expected <= kinds, expected - kinds
+            assert any(record["kind"].startswith("PDF · ") for record in records)
+            assert not app.history.error, app.history.error
+            app.history_btn.invoke()
+            history = app._history_window
+            app.history_btn.invoke()
+            assert app._history_window is history
+            history.filter_var.set("PDF · ")
+            history.refresh()
+            assert len(history.tree.get_children()) == 2
+            token = history.tree.get_children()[0]
+            history.tree.selection_set(token)
+            history.select()
+            assert history.detail.get_children()
+            detail_id = history.detail.get_children()[0]
+            history.detail.selection_set(detail_id)
+            history.copy_detail()
+            assert "输出" in history.clipboard_get()
+            history.update()
+            assert all(widget.winfo_ismapped() for widget in history.winfo_children()), "记录窗口底部操作必须可见"
+            export = root / "任务记录.csv"
+            history.export(export)
+            assert "PDF · " in export.read_text(encoding="utf-8-sig")
+            result_file = Path(history.selected_item()["output"])
+            with patch("tkinter.messagebox.askyesno", return_value=True):
+                history.clear()
+            assert result_file.exists(), "清除记录不得删除结果"
+            assert not app.history.store.query("PDF · ", limit=500)[0]["id"] == token
+            history.destroy()
+            print("[通过] 全工具任务记录：统一持久化、筛选、明细、复制、导出与仅清除记录")
 
             app.download.clear_completed()
             app.download.add_links([base + "/slow"])

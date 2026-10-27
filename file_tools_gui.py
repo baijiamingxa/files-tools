@@ -14,7 +14,7 @@ from txt_encoder_core import ENCODING_CHOICES, LABEL_TO_CODEC, format_size
 
 
 class FilePanel(ttk.Frame):
-    def __init__(self, parent, status_callback=None, extensions="all"):
+    def __init__(self, parent, status_callback=None, extensions="all", compact=False):
         super().__init__(parent, padding=10)
         self._notify = status_callback or (lambda value: None)
         self.inputs, self.rows = [], []
@@ -30,7 +30,7 @@ class FilePanel(ttk.Frame):
         self.extensions_var = tk.StringVar(self, value=extensions)
         self.controls = ttk.Frame(self)
         self.controls.pack(fill="x")
-        sources = ttk.LabelFrame(self.controls, text="选择文件", padding=8)
+        sources = ttk.Frame(self.controls, padding=4) if compact else ttk.LabelFrame(self.controls, text="选择文件", padding=8)
         sources.pack(fill="x")
         bar = ttk.Frame(sources)
         bar.pack(fill="x")
@@ -38,12 +38,15 @@ class FilePanel(ttk.Frame):
         ttk.Button(bar, text="添加文件夹…", command=self._folder).pack(side="left", padx=6)
         ttk.Button(bar, text="清空", command=lambda: self.set_inputs([])).pack(side="left")
         ttk.Label(bar, textvariable=self.input_var).pack(side="left", padx=10)
-        line = ttk.Frame(sources)
-        line.pack(fill="x", pady=(6, 0))
-        ttk.Checkbutton(line, text="包含子文件夹", variable=self.recursive_var).pack(side="left")
-        ttk.Label(line, text="文件类型：").pack(side="left", padx=(16, 0))
-        ttk.Entry(line, textvariable=self.extensions_var, width=30).pack(side="left")
-        ttk.Label(line, text="逗号分隔；all 表示全部").pack(side="left", padx=8)
+        if compact:
+            ttk.Checkbutton(bar, text="包含子文件夹", variable=self.recursive_var).pack(side="right")
+        else:
+            line = ttk.Frame(sources)
+            line.pack(fill="x", pady=(6, 0))
+            ttk.Checkbutton(line, text="包含子文件夹", variable=self.recursive_var).pack(side="left")
+            ttk.Label(line, text="文件类型：").pack(side="left", padx=(16, 0))
+            ttk.Entry(line, textvariable=self.extensions_var, width=30).pack(side="left")
+            ttk.Label(line, text="逗号分隔；all 表示全部").pack(side="left", padx=8)
         self.actions = ttk.Frame(self.controls)
         self.results = ttk.Frame(self)
         self.results.pack(fill="both", expand=True, pady=8)
@@ -108,7 +111,7 @@ class FilePanel(ttk.Frame):
             self._states = []
         self.cancel_btn.configure(state="normal" if locked else "disabled")
 
-    def _run(self, work, finish):
+    def _run(self, work, finish, task=None):
         if self.busy() or self._closing:
             return
         self._stop.clear()
@@ -118,6 +121,10 @@ class FilePanel(ttk.Frame):
         self.progress.configure(value=0)
         self._finish = finish
         self._last_progress = 0
+        if task:
+            from task_history import tracked
+            name, inputs, describe = task
+            work = tracked(getattr(self, "history", None), name, work, inputs, describe, self._stop.is_set)
         def report(done, total, detail):
             now = time.monotonic()
             if now - self._last_progress >= 0.1 or done == total:
@@ -320,7 +327,9 @@ class ReplacePanel(FilePanel):
             self.checked.clear()
             self._render()
             self.status_var.set(f"替换完成：成功 {sum(row.status == '已替换' for row in selected)}，失败 {sum(row.status == '失败' for row in selected)}。")
-        self._run(lambda report: core.execute_replacements(selected, options, self._stop, report), finish)
+        from task_history import file_rows
+        self._run(lambda report: core.execute_replacements(selected, options, self._stop, report), finish,
+                  task=("批量文本替换", [row.path for row in selected], lambda result: file_rows(selected)))
 
 
 class ChecksumPanel(FilePanel):
@@ -376,7 +385,8 @@ class ChecksumPanel(FilePanel):
             self.rows = rows
             self._render()
             self.status_var.set(f"计算完成：共 {len(rows)} 个文件，失败 {sum(bool(row.error) for row in rows)} 个。")
-        self._run(work, finish)
+        from task_history import file_rows
+        self._run(work, finish, task=("文件校验 · 计算", inputs, file_rows))
 
     def export(self, path=None):
         if self.busy() or not self.rows:
@@ -419,7 +429,12 @@ class ChecksumPanel(FilePanel):
             good = sum(item[2] == "一致" for item in self.comparisons)
             self.status_var.set(f"对比完成：{good} 项一致，{len(self.comparisons) - good} 项不一致或无法验证。")
             self.detail_var.set("\n".join(f"{name} · {algorithm}：{state}" for name, algorithm, state, _, _ in self.comparisons[:5]))
-        self._run(work, finish)
+        from task_history import item
+        def describe(result):
+            if result is None:
+                return []
+            return [item(name, state="一致" if state == "一致" else "不一致", detail=f"{algorithm}：{state}，预期 {expected}，实际 {actual}") for name, algorithm, state, expected, actual in result[1]]
+        self._run(work, finish, task=("文件校验 · 清单比对", [path], describe))
 
     def show_comparisons(self):
         if not self.comparisons:

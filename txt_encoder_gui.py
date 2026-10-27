@@ -505,6 +505,10 @@ class _EncoderUI:
 
     def _worker_main(self, options: ConvertOptions, scan: bool) -> None:
         total = len(self._pairs)
+        from task_history import file_rows, item
+        history = getattr(self, "history", None)
+        token = history.begin("TXT 编码检测" if scan else "TXT 批量转码", [src for src, root in self._pairs]) if history else None
+        recorded, failures = [], []
         try:
             for index, (src, root) in enumerate(self._pairs):
                 if self._stop_event.is_set():
@@ -514,10 +518,14 @@ class _EncoderUI:
                     result = convert_file(src, options, root)
                 except Exception as exc:  # 单个文件出错不影响整体
                     self._queue.put(("crash", index, f"{src}: {exc}"))
+                    failures.append(item(src, state="失败", detail=str(exc)))
                     continue
+                recorded.append(result)
                 self._queue.put(("result", index, result))
                 self._queue.put(("progress", index + 1, total))
         finally:
+            if history:
+                history.finish(token, items=file_rows(recorded) + failures, cancelled=self._stop_event.is_set())
             self._queue.put(("done", scan, total))
 
     # 反馈

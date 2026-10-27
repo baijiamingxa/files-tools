@@ -70,6 +70,9 @@ jobs:
       - name: 文档转换与安装器自检（输出保护、取消进程组、安装校验与失败回退）
         run: python document_selftest.py
 
+      - name: PDF 操作与任务记录自检（页码、输出保护、持久化、并发和隐私）
+        run: python pdf_history_selftest.py
+
       - name: 图形界面模块可导入
         # GitHub 的 Linux 运行器没带 tkinter，这一步只在 Windows 上做
         if: runner.os == 'Windows'

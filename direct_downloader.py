@@ -594,12 +594,13 @@ def cli_download(args):
 
 # ---------- 图形界面 ----------
 class App:
-    def __init__(self, root, embedded=False, on_complete=None, queue_path=None):
+    def __init__(self, root, embedded=False, on_complete=None, queue_path=None, history=None):
         global tk, filedialog, ttk
         import tkinter as tk
         from tkinter import filedialog, ttk
         self.root = root
         self.on_complete = on_complete
+        self.history = history
         if not embedded:
             root.title("直链下载器")
             root.geometry("640x460")
@@ -772,7 +773,11 @@ class App:
         return True
 
     def _job_worker(self):
-        self.job.run()
+        from task_history import tracked, item
+        job = self.job
+        def describe(result):
+            return [item(job.url, job.save_path if job.finished else "", "失败" if job.error else "已完成" if job.finished else "已取消", str(job.error or ""))]
+        tracked(self.history, "直链下载", job.run, [job.url], describe, job.cancel_event.is_set)()
         if self.job.error:
             self.msg_queue.append(("log", f"错误: {self.job.error}"))
             self.msg_queue.append(("done", None, self.job.save_path))

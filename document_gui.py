@@ -139,7 +139,9 @@ class DocumentPanel(FilePanel):
             self.checked.clear()
             self._render()
             self.status_var.set(f"转换完成：成功 {sum(row.status == '已完成' for row in selected)}，失败 {sum(row.status == '失败' for row in selected)}；源文件保留。")
-        self._run(lambda report: core.execute_document_plan(selected, options, self._stop, report), finish)
+        from task_history import file_rows
+        self._run(lambda report: core.execute_document_plan(selected, options, self._stop, report), finish,
+                  task=("Word / PDF 转换", [row.path for row in selected], lambda result: file_rows(selected)))
 
     def setup_engine(self):
         def finish(path):

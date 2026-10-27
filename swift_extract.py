@@ -1561,8 +1561,9 @@ def _request_password(job: Job, opts: Options) -> str | None:
 # =====================================================================
 
 class Scheduler:
-    def __init__(self, opts: Options):
+    def __init__(self, opts: Options, history=None):
         self.opts = opts
+        self.history = history
         self.jobs: list[Job] = []
         self.lock = threading.Lock()
         self.workers: list[threading.Thread] = []
@@ -1599,7 +1600,13 @@ class Scheduler:
                 self.q.task_done()
                 continue
             job.state = "解压中"
-            execute_task(job, self.opts)
+            from task_history import tracked, item
+            def describe(result):
+                state = "已完成" if job.state == "完成" else "部分完成" if job.state == "完成(有警告)" else "已取消" if job.state == "已取消" else "失败"
+                return [item("\n".join(map(str, job.sources)) if job.mode == "compress" else job.path,
+                             (job.path if job.mode == "compress" else job.dest) if job.state.startswith("完成") else "", state, job.error)]
+            tracked(self.history, "压缩文件" if job.mode == "compress" else "解压文件", lambda: execute_task(job, self.opts),
+                    job.sources if job.mode == "compress" else [job.path], describe, lambda: job.cancel)()
             self.q.task_done()
 
     def _more_pending(self):
@@ -1634,7 +1641,7 @@ def default_config_path():
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), "archive_settings.json")
 
 
-def run_gui(parent=None, config_path=None, on_output=None):
+def run_gui(parent=None, config_path=None, on_output=None, history=None):
     """创建独立窗口或嵌入页签，并返回任务控制接口。"""
     import json
     import tkinter as tk
@@ -1855,7 +1862,7 @@ def run_gui(parent=None, config_path=None, on_output=None):
         add_row(job)
         log(f"添加压缩任务 → {job.path} ({job.kind}, {LEVELS_ZH[job.level]})")
         if sched[0] is None:
-            sched[0] = Scheduler(current_opts())
+            sched[0] = Scheduler(current_opts(), history)
         sched[0].opts = current_opts()
         sched[0].start([job])
         go_btn.configure(state="disabled")
@@ -2028,7 +2035,7 @@ def run_gui(parent=None, config_path=None, on_output=None):
             j.cancel = False
             j.error = ""
         if sched[0] is None or not sched[0].running:
-            sched[0] = Scheduler(opts)
+            sched[0] = Scheduler(opts, history)
         else:
             sched[0].opts = opts
         go_btn.configure(state="disabled")

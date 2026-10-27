@@ -32,7 +32,7 @@ def main():
     frame = ttk.Frame(app, padding=22)
     frame.pack(fill="both", expand=True)
     ttk.Label(frame, text="安装文件工具箱", font=("Microsoft YaHei UI", 18, "bold")).pack(anchor="w")
-    ttk.Label(frame, text="包含 Word / PDF 转换和完整文件工具。依赖随程序安装，按当前用户配置。\nWord 转 PDF 优先使用已有 LibreOffice；缺少时可在工具箱中自动配置。", wraplength=650).pack(anchor="w", pady=14)
+    ttk.Label(frame, text="包含文档转换、PDF 页面操作及任务记录；依赖随程序安装。\nWord 转 PDF 优先使用已有 LibreOffice；缺少时可在工具箱中自动配置。", wraplength=650).pack(anchor="w", pady=14)
     path = tk.StringVar(app, value=str(Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "Programs" / "文件工具箱"))
     row = ttk.Frame(frame)
     row.pack(fill="x")

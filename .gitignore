@@ -9,6 +9,7 @@ build/
 dist/
 *.spec
 _文档转换验证/
+_PDF处理验证/
 .venv-document-build/
 
 # 本工具的演示产物（用 make_sample_files.py 或程序本身随时可重新生成）
