@@ -20,14 +20,21 @@ from pathlib import Path
 import c_cleaner as cc
 
 
+def write_sample(path, data):
+    """样本设为一分钟前，避免 Windows 文件时间戳稍领先时钟导致年龄为负。"""
+    path.write_bytes(data)
+    modified = time.time() - 60
+    os.utime(path, (modified, modified))
+
+
 class ScanCleanTests(unittest.TestCase):
     def test_age_filter_scan_and_clean(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
             old = base / "旧临时.bin"
-            old.write_bytes(b"a" * 3333)
+            write_sample(old, b"a" * 3333)
             fresh = base / "新临时.bin"
-            fresh.write_bytes(b"b" * 111)
+            write_sample(fresh, b"b" * 111)
             past = time.time() - 3 * 24 * 3600
             os.utime(old, (past, past))
             engine = cc.CleanEngine(root_overrides={"user_temp": base}, min_age_hours=24)
@@ -55,7 +62,7 @@ class ScanCleanTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
             locked = base / "locked.tmp"
-            locked.write_bytes(b"z" * 512)
+            write_sample(locked, b"z" * 512)
             engine = cc.CleanEngine(root_overrides={"user_temp": base}, min_age_hours=0)
             with open(locked, "rb"):  # 保持句柄，Windows 下删除会失败
                 result = engine.clean("user_temp")
@@ -69,10 +76,10 @@ class ScanCleanTests(unittest.TestCase):
             base = Path(temp)
             outside = base / "outside"
             outside.mkdir()
-            (outside / "deep.bin").write_bytes(b"q" * 9999)
+            write_sample(outside / "deep.bin", b"q" * 9999)
             inside = base / "inside"
             inside.mkdir()
-            (inside / "shallow.bin").write_bytes(b"w" * 10)
+            write_sample(inside / "shallow.bin", b"w" * 10)
             subprocess.run(["cmd", "/c", "mklink", "/J", str(inside / "link"), str(outside)],
                            check=True, capture_output=True)
             scan = cc.CleanEngine(root_overrides={"user_temp": inside}, min_age_hours=0).scan("user_temp")
@@ -82,9 +89,9 @@ class ScanCleanTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
             cache = base / "thumbcache_001.db"
-            cache.write_bytes(b"t" * 256)
+            write_sample(cache, b"t" * 256)
             other = base / "notcache.db"
-            other.write_bytes(b"o" * 999)
+            write_sample(other, b"o" * 999)
             engine = cc.CleanEngine(root_overrides={"thumbnails": base}, min_age_hours=0)
             scan = engine.scan("thumbnails")
             self.assertEqual(scan.bytes, 256)
@@ -133,7 +140,7 @@ class RegistryTests(unittest.TestCase):
             sub.Close()
         with tempfile.TemporaryDirectory() as temp:
             recent = Path(temp)
-            (recent / "讲稿.lnk").write_bytes(b"l" * 64)
+            write_sample(recent / "讲稿.lnk", b"l" * 64)
             engine = cc.CleanEngine(
                 root_overrides={"recent_docs": recent},
                 registry_overrides={"recent_docs": scratch}, min_age_hours=0)
