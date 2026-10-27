@@ -196,7 +196,7 @@ def main():
             previous_geometry = app.geometry()
             app.geometry("1100x660")
             app.update()
-            assert pdf_panel.tree.winfo_height() >= 55, "最小窗口也应能看到预览行"
+            assert pdf_panel.tree.winfo_height() >= 55, f"最小窗口也应能看到预览行，当前高度 {pdf_panel.tree.winfo_height()}，Tk {tk.TkVersion}"
             second_pdf = root / "第二份.pdf"
             second_pdf.write_bytes(b"%PDF-second")
             pdf_panel.set_inputs([pdf, second_pdf])

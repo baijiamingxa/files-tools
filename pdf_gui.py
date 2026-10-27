@@ -19,7 +19,7 @@ class PdfPanel(FilePanel):
         super().__init__(parent, status_callback, extensions="pdf", compact=True)
         self.configure(padding=6)
         self.options = None
-        order = ttk.LabelFrame(self.controls, text="文件顺序（合并按此顺序；文件夹内按路径排序展开）", padding=6)
+        order = ttk.Frame(self.controls, padding=(4, 0, 4, 4))
         order.pack(fill="x", pady=(6, 0))
         self.order_list = tk.Listbox(order, height=2, exportselection=False)
         self.order_list.pack(side="left", fill="both", expand=True)
@@ -28,9 +28,12 @@ class PdfPanel(FilePanel):
         self.order_list.configure(yscrollcommand=scroll.set)
         buttons = ttk.Frame(order)
         buttons.pack(side="left", padx=8)
+        ttk.Label(buttons, text="合并按列表顺序；文件夹内按路径排序").pack(anchor="w")
+        moves = ttk.Frame(buttons)
+        moves.pack(fill="x")
         for label, delta in (("上移", -1), ("下移", 1)):
-            ttk.Button(buttons, text=label, command=lambda value=delta: self.move_input(value)).pack(side="left", padx=2)
-        ttk.Button(buttons, text="移除所选", command=self.remove_input).pack(side="left", padx=2)
+            ttk.Button(moves, text=label, command=lambda value=delta: self.move_input(value)).pack(side="left", padx=2)
+        ttk.Button(moves, text="移除所选", command=self.remove_input).pack(side="left", padx=2)
         self.mode_var = tk.StringVar(self, value=next(iter(MODES)))
         self.pages_var = tk.StringVar(self)
         self.output_var = tk.StringVar(self)
