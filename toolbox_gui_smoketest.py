@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import io
+import csv
 import os
 import tempfile
 import time
@@ -11,8 +12,10 @@ import tkinter as tk
 import tkinter.messagebox
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 import c_cleaner
+import storage_tools
 import swift_extract as se
 from file_toolbox import ToolboxApp
 from toolbox_selftest import local_server
@@ -46,11 +49,11 @@ def main():
         app.report_callback_exception = report_error
         try:
             app.update()
-            assert len(app.tabs.tabs()) == 5
+            assert len(app.tabs.tabs()) == 7
             assert sorted(image.width() for image in app._icon_images) == [32, 64]
             # 所有工具共用一个 Tk 解释器，没有额外主窗口。
             assert app.encoder.tk is app.download.root.tk is app.archive_tab.tk
-            print("[通过] 五个工具嵌入同一个窗口")
+            print("[通过] 七个工具嵌入同一个窗口")
 
             app.download.dir_var.set(str(root))
             app.download.name_var.set("下载结果.zip")
@@ -194,6 +197,89 @@ def main():
             assert panel.execute_btn.instate(["disabled"])
             assert not errors, errors
             print("[通过] 批量重命名：预览不写盘、取消确认、编号改名、原样撤销和冲突阻止")
+
+            storage_root = (root / "空间查重样本").resolve()
+            nested = storage_root / "nested"
+            nested.mkdir(parents=True)
+            old_copy, new_copy = storage_root / "old.txt", nested / "latest.txt"
+            old_copy.write_bytes(b"duplicate")
+            new_copy.write_bytes(b"duplicate")
+            old_time = time.time() - 3600
+            os.utime(old_copy, (old_time, old_time))
+            (storage_root / "different.txt").write_bytes(b"something")
+            (storage_root / "big.bin").write_bytes(b"x" * 4096)
+            total_size = 4096 + 3 * len(b"duplicate")
+            app.tabs.select(app.space)
+            app.space.set_root(storage_root)
+            app.space.scan_btn.invoke()
+            pump(app, lambda: not app.space._active and app.space.status_var.get().startswith("扫描完成"))
+            assert app.space.scan.total_size == total_size
+            first = app.space.tree.get_children()[0]
+            assert app.space._rows[first].path.name == "big.bin"
+            assert app.space.scan_btn.instate(["!disabled"])
+            app.space.limit_var.set("2")
+            assert len(app.space.tree.get_children()) == 2
+            space_csv = root / "space_report.csv"
+            with patch("storage_gui.filedialog.asksaveasfilename", return_value=str(space_csv)):
+                app.space.export_btn.invoke()
+            exported = list(csv.reader(space_csv.read_text(encoding="utf-8-sig").splitlines()))
+            assert any(str(new_copy) in row for row in exported), "导出应包含显示上限之外的文件"
+            app.space.limit_var.set("200")
+            app.space.duplicates_btn.invoke()
+            assert app.tabs.select() == str(app.duplicates)
+            dup = app.duplicates
+            pump(app, lambda: not dup._active and dup.status_var.get().startswith("扫描完成"))
+            assert len(dup.duplicates.groups) == 1
+            group = dup.duplicates.groups[0]
+            assert group.keeper.path == new_copy
+            assert not dup.checked
+            dup.limit_var.set("1000")
+            assert len(dup.duplicates.groups) == 1, "改变显示上限不应使查重结果失效"
+            dup_csv = root / "duplicate_report.csv"
+            with patch("storage_gui.filedialog.asksaveasfilename", return_value=str(dup_csv)):
+                dup.export_btn.invoke()
+            assert group.digest in dup_csv.read_text(encoding="utf-8-sig")
+            dup.suggest_btn.invoke()
+            assert dup.checked == {storage_tools.key(old_copy)}
+            assert dup.delete_btn.instate(["!disabled"])
+            keeper_row = next(iid for iid, (file, _group) in dup._rows.items() if file.path == new_copy)
+            popups = []
+            real_showinfo = tkinter.messagebox.showinfo
+            tkinter.messagebox.showinfo = lambda *a, **k: popups.append(a)
+            try:
+                dup.toggle_checked([keeper_row])
+                assert dup.checked == {storage_tools.key(old_copy)}, "不能勾选最后一份副本"
+                assert popups
+                dup._confirm_delete = lambda *_: False
+                dup.delete_btn.invoke()
+                assert old_copy.exists() and new_copy.exists()
+                recycle_folder = root / "模拟回收站"
+                recycle_folder.mkdir()
+                def recycle_storage(paths):
+                    for index, path in enumerate(paths):
+                        os.rename(path, recycle_folder / f"{index}_{path.name}")
+                dup.recycler = recycle_storage
+                dup._confirm_delete = lambda *_: True
+                dup.delete_btn.invoke()
+                pump(app, lambda: not dup._active and dup.status_var.get().startswith("系统操作结束"))
+                assert not old_copy.exists()
+                assert new_copy.read_bytes() == b"duplicate"
+                assert (storage_root / "different.txt").read_bytes() == b"something"
+                assert not dup.tree.get_children(), "处理后旧结果应失效"
+            finally:
+                tkinter.messagebox.showinfo = real_showinfo
+            app.tabs.select(app.space)
+            app.space.scan_btn.invoke()
+            pump(app, lambda: not app.space._active and app.space.status_var.get().startswith("扫描完成"))
+            assert app.space.scan.total_size == total_size - len(b"duplicate")
+            folder_row = next(iid for iid, entry in app.space._rows.items() if isinstance(entry, storage_tools.FolderInfo))
+            app.space.tree.selection_set(folder_row)
+            app.space.drill_btn.invoke()
+            pump(app, lambda: not app.space._active and app.space.status_var.get().startswith("扫描完成"))
+            assert app.space.scan.root == nested
+            assert app.space.scan.total_size == len(b"duplicate")
+            assert not errors, errors
+            print("[通过] 空间分析与查重：大小排序、目录下钻、完整哈希、建议保留最新、取消确认及回收副本保护")
 
             shell_text = root / "右键 文件 & 感叹! 百分%.TXT"
             shell_text.write_text("MZ 开头的普通 TXT，右键也应进入转码页。", encoding="utf-8")

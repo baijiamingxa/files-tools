@@ -1,12 +1,12 @@
-# 文件工具箱 · 下载 / 压缩解压 / 文本转码 / C 盘清理 / 批量重命名
+# 文件工具箱 · 下载 / 压缩解压 / 转码 / 清理 / 重命名 / 空间分析 / 查重
 
 [![CI](https://github.com/baijiamingxa/txt-encoder/actions/workflows/ci.yml/badge.svg)](https://github.com/baijiamingxa/txt-encoder/actions/workflows/ci.yml)
 
-> A Windows GUI for downloads, archives, text encoding conversion, drive cleanup and batch file renaming.
+> A Windows GUI for downloads, archives, text encoding conversion, cleanup, batch renaming, folder size analysis and duplicate-file finding.
 > Double-click `run_gui.bat` or `启动文件工具箱.bat`. The original command-line tools remain available.
 > Core features use the Python standard library. Extra archive formats use optional engines already installed on the machine.
 
-直链下载、压缩解压、文本转码、C 盘清理和批量重命名共用一个窗口，五个页签可以独立使用，
+直链下载、压缩解压、文本转码、C 盘清理、批量重命名、空间分析和重复文件共用一个窗口，七个页签可以独立使用，
 也可以按“下载 → 解压 → 转码”衔接处理。仓库地址和原有转码命令行接口保持兼容。
 
 | 页签 | 功能 |
@@ -16,6 +16,8 @@
 | 文本转码 | 批量识别和转换 GBK、GB2312、Big5、UTF-8、UTF-16 等编码，预览、报告与原地备份 |
 | C 盘清理 | 扫描预定义的临时与缓存目录，按勾选项目清理、跳过占用文件 |
 | 批量重命名 | 旧名/新名预览，序号、替换、前后缀、扩展名与修改日期命名，冲突阻止、失败回退、撤销最近一批 |
+| 空间分析 | 按逻辑大小列出文件和文件夹、大小排序和筛选、目录下钻、打开位置、选中后确认删除 |
+| 重复文件 | 先按大小分组，再完整计算 SHA-256；建议保留最新副本，勾选删除且每组至少留一份 |
 
 这些基础功能**只依赖 Python 标准库，无需 pip 安装**。7z、AES ZIP、zst、RAR 等额外格式的
 可用情况取决于本机已有扩展库或 WinRAR/UnRAR，详见[工具箱说明](docs/工具箱说明.md)。
@@ -38,6 +40,13 @@
   带“管理员”的项会弹 UAC 授权；被占用的文件自动跳过。详见 `docs/工具箱说明.md`。
 * 批量重命名：添加文件或文件夹，组合规则，先点“① 扫描预览”核对旧名和新名，
   再点“② 确认并执行”。冲突行会标红并阻止整批执行；可“撤销上次”恢复最近一批原名。
+* 空间分析：选择文件夹或磁盘，扫描后按大小定位大文件和目录。“分析所选文件夹”可继续深入，
+  “在此查重”会打开重复文件页并扫描相应范围。
+* 重复文件：扫描后绿色行建议保留最新一份。“勾选建议副本”只勾选当前显示的其他副本，
+  点击删除前仍需确认；程序会再次校验保留副本和待处理副本，并阻止整组删除。
+
+空间分析和查重支持导出完整 CSV，包括未显示的条目和无法访问的路径。
+删除操作优先使用 Windows 回收站并保留系统确认；回收站清空前，可用空间不一定增加。
 
 在 **“文本转码”页**：
 
@@ -230,6 +239,7 @@ python toolbox_selftest.py       :: 下载、暂停续传、压缩解压和转�
 python toolbox_gui_smoketest.py  :: 统一窗口内的完整操作流程
 python windows_integration_selftest.py :: 右键菜单安装、更新和移除，使用隔离注册表分支
 python batch_rename_selftest.py  :: 改名、冲突、撤销和中断回退，仅使用临时文件
+python storage_selftest.py      :: 空间统计、查重、保留副本和回收前复查，仅使用临时样本
 python c_cleaner_selftest.py     :: C 盘清理的扫描、清理和管理员任务管道
 ```
 

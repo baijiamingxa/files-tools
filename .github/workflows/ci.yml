@@ -58,6 +58,9 @@ jobs:
       - name: 批量重命名自检（冲突、撤销、竞争目标与中断回退）
         run: python batch_rename_selftest.py
 
+      - name: 空间分析与重复文件自检（统计、SHA256、保留副本与回收前复查）
+        run: python storage_selftest.py
+
       - name: 图形界面模块可导入
         # GitHub 的 Linux 运行器没带 tkinter，这一步只在 Windows 上做
         if: runner.os == 'Windows'
